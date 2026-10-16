@@ -327,10 +327,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 payload = {}
             cat = payload.get("category", "").strip()
-            if not cat:
-                self.send_json({"error": "Category name is required"}, code=400)
-                return
             batches = payload.get("batches", "all").strip()
+            if not cat:
+                if batches and (batches.startswith("http") or "/batch/" in batches):
+                    cat = "Direct Batch URL"
+                else:
+                    self.send_json({"error": "Category name or direct batch URL is required"}, code=400)
+                    return
             base_url = payload.get("base_url", QUIZARD.DEFAULT_BASE_URL).strip()
             use_syllabus = bool(payload.get("use_api_syllabus", True))
             headless = bool(payload.get("headless", True))

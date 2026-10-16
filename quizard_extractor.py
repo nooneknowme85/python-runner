@@ -44,7 +44,7 @@ EXTRACTION_JS = """
         syllabus: "" 
     };
 
-    // Helper: Replaces <math> tags with clean $LaTeX$ strings
+    // Helper: 100% MathJax Formula Cleaner
     function cleanHtmlMath(htmlString) {
         if (!htmlString) return "";
         const tempDiv = document.createElement('div');
@@ -53,11 +53,28 @@ EXTRACTION_JS = """
         const mathNodes = tempDiv.querySelectorAll('math');
         mathNodes.forEach(mathEl => {
             const annotation = mathEl.querySelector('annotation[encoding="LaTeX"]');
-            if (annotation && annotation.textContent) {
-                const latex = `$${annotation.textContent.trim()}$`;
-                mathEl.parentNode.replaceChild(document.createTextNode(latex), mathEl);
+            if (annotation && annotation.textContent && annotation.textContent.trim()) {
+                let latex = annotation.textContent
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/\\degree/g, '^{\\\\circ}')
+                    .replace(/\\AA/g, '\\\\text{Å}')
+                    .trim();
+                const textNode = document.createTextNode(`$${latex}$`);
+                mathEl.parentNode.replaceChild(textNode, mathEl);
             } else {
-                mathEl.parentNode.replaceChild(document.createTextNode(mathEl.textContent || ""), mathEl);
+                let txt = (mathEl.textContent || "").trim();
+                if (txt === '≤' || txt === '<=') txt = '\\\\le';
+                else if (txt === '≥' || txt === '>=') txt = '\\\\ge';
+                else if (txt === '≠' || txt === '!=') txt = '\\\\ne';
+                else if (txt === '±' || txt === '+-') txt = '\\\\pm';
+                else if (txt === '×') txt = '\\\\times';
+                else if (txt === '÷') txt = '\\\\div';
+                else if (txt === '°') txt = '^{\\\\circ}';
+                const textNode = document.createTextNode(txt ? `$${txt}$` : "");
+                mathEl.parentNode.replaceChild(textNode, mathEl);
             }
         });
         
@@ -69,84 +86,139 @@ EXTRACTION_JS = """
         if (!html) return "";
         let d = document.createElement('div');
         d.innerHTML = html;
-        return d.innerText.replace(/\\s+/g, '').trim();
+        return d.innerText.replace(/\\s+/g, ' ').trim();
     }
 
-    // 1. Scrape correct answers from the Results Table
+    // 1. Scrape correct answers from the Results Table using DIRECT rows & cells
+    // (Prevents nested matching tables inside question cells from corrupting row index)
     const tableAnswers = [];
-    document.querySelectorAll('#result table tr').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length >= 3 && !cells[0].innerText.includes('Total')) {
-            const ansDivs = Array.from(cells[2].querySelectorAll('div'));
-            const correctDiv = ansDivs.find(d => d.innerText.includes('Correct Answer'));
-            
-            if (correctDiv) {
-                let clone = correctDiv.cloneNode(true);
-                let innerHTML = clone.innerHTML;
-                innerHTML = innerHTML.replace(/Correct Answers?:\\s*/i, '').trim();
-                tableAnswers.push(cleanHtmlMath(innerHTML));
-            } else {
-                tableAnswers.push("");
+    const mainTable = document.querySelector('#result table') || document.querySelector('table');
+    if (mainTable) {
+        const tbody = mainTable.querySelector('tbody') || mainTable;
+        const topRows = Array.from(tbody.children).filter(el => el.tagName === 'TR');
+        topRows.forEach(row => {
+            const directTds = Array.from(row.children).filter(el => el.tagName === 'TD');
+            if (directTds.length >= 3 && !directTds[0].innerText.includes('Total')) {
+                const ansCell = directTds[2];
+                const ansDivs = Array.from(ansCell.querySelectorAll('div'));
+                const correctDiv = ansDivs.find(d => /Correct Answer/i.test(d.innerText));
+                
+                if (correctDiv) {
+                    let clone = correctDiv.cloneNode(true);
+                    let innerHTML = clone.innerHTML;
+                    innerHTML = innerHTML.replace(/Correct Answers?:\\s*/i, '').trim();
+                    tableAnswers.push(cleanHtmlMath(innerHTML));
+                } else {
+                    let cleaned = ansCell.innerHTML.replace(/Correct Answers?:\\s*/i, '').trim();
+                    tableAnswers.push(cleanHtmlMath(cleaned));
+                }
             }
-        }
-    });
+        });
+    }
 
-    // 2. Build questions utilizing the global 'window.questions' array (New Format)
-    if (window.questions && window.questions.length > 0) {
-        let currentSection = null;
-        let currentSecName = "";
-        let qNum = 1;
+    // 2. Build questions utilizing the local 'questions' or global 'window.questions' array
+    const qSource = (typeof questions !== 'undefined' && Array.isArray(questions) && questions.length > 0)
+        ? questions
+        : (window.questions && window.questions.length > 0 ? window.questions : null);
 
-        window.questions.forEach((q, index) => {
+    if (qSource && qSource.length > 0) {
+        qSource.forEach((q, index) => {
             let secName = q.section || "Default";
             
-            // Handle section grouping
-            if (secName !== currentSecName) {
-                currentSecName = secName;
-                currentSection = { name: currentSecName, icon: "", questions: [] };
+            // Group questions by section name (handles interleaved sections like Botany/Zoology)
+            let currentSection = data.sections.find(s => s.name === secName);
+            if (!currentSection) {
+                currentSection = { name: secName, icon: "", questions: [] };
                 data.sections.push(currentSection);
-                qNum = 1;
             }
+            let qNum = currentSection.questions.length + 1;
 
             // Schema-compliant types
             let qType = q.type === "multi" ? "multi_mcq" : (q.type || "mcq");
             
-            // Clean Question HTML
+            // Clean Question HTML & Math formulas
             let cleanQuestionHtml = cleanHtmlMath(q.question || "");
             
-            // Extract Image
+            // Extract all diagram images and preserve secondary figures
             let tempDiv = document.createElement('div');
             tempDiv.innerHTML = cleanQuestionHtml;
-            let imgEl = tempDiv.querySelector('img');
-            let imageUrl = imgEl ? (imgEl.src || imgEl.getAttribute('src')) : null;
-            if (imgEl) imgEl.remove();
+            let imgEls = Array.from(tempDiv.querySelectorAll('img'));
+            let allImages = imgEls.map(img => img.src || img.getAttribute('src')).filter(Boolean);
+            let primaryImageUrl = allImages.length > 0 ? allImages[0] : null;
+
+            // Remove standalone question images from HTML body (so they render cleanly via image_url/images)
+            imgEls.forEach(img => {
+                const p = img.parentElement;
+                if (p && (p.children.length === 1 || p.innerText.trim() === '')) {
+                    img.remove();
+                }
+            });
             cleanQuestionHtml = tempDiv.innerHTML.trim();
 
             // Proceed if text OR image exists
-            if (cleanQuestionHtml.length > 0 || imageUrl) {
+            if (cleanQuestionHtml.length > 0 || primaryImageUrl) {
                 let questionData = {
-                    id: `${testId}_${currentSecName.substring(0,3).toLowerCase()}_q${qNum}`,
+                    id: `${testId}_${secName.substring(0,3).toLowerCase()}_q${qNum}`,
                     type: qType,
                     question: cleanQuestionHtml,
-                    image_url: imageUrl
+                    image_url: primaryImageUrl,
+                    images: allImages.length > 1 ? allImages : (primaryImageUrl ? [primaryImageUrl] : [])
                 };
 
                 let tableAns = tableAnswers[index] || "";
+                let rawAnsText = getRawText(tableAns);
 
                 if (qType === "integer") {
-                    questionData.answer = getRawText(tableAns); 
+                    questionData.answer = rawAnsText.replace(/[^0-9.\\-]/g, '') || rawAnsText;
                 } else {
-                    let cleanOptions = (q.options || []).map(opt => cleanHtmlMath(opt));
+                    // Clean options, stripping wrapping <p>...</p> tags
+                    let cleanOptions = (q.options || []).map(opt => {
+                        let cleaned = cleanHtmlMath(opt);
+                        cleaned = cleaned.replace(/^<p\\s*[^>]*>/i, '').replace(/<\\/p>$/i, '').trim();
+                        return cleaned;
+                    });
                     questionData.options = cleanOptions.length > 0 ? cleanOptions : ["A", "B", "C", "D"];
                     
-                    const targetText = getRawText(tableAns);
-                    let correctIndex = questionData.options.findIndex(opt => getRawText(opt) === targetText);
-                    
                     if (qType === "multi_mcq") {
-                        questionData.correct = correctIndex !== -1 ? [correctIndex] : [0]; 
+                        let matchedIndices = [];
+                        const optLetters = ['A', 'B', 'C', 'D', 'E'];
+                        let letterMatches = rawAnsText.toUpperCase().match(/[A-E]/g);
+                        if (letterMatches && letterMatches.length > 0 && questionData.options.length <= 5) {
+                            matchedIndices = letterMatches
+                                .map(l => optLetters.indexOf(l))
+                                .filter(idx => idx >= 0 && idx < questionData.options.length);
+                        }
+                        if (matchedIndices.length === 0) {
+                            questionData.options.forEach((opt, oIdx) => {
+                                let optText = getRawText(opt);
+                                if (optText && rawAnsText.includes(optText)) {
+                                    matchedIndices.push(oIdx);
+                                }
+                            });
+                        }
+                        questionData.correct = matchedIndices.length > 0 ? Array.from(new Set(matchedIndices)) : [0];
                     } else {
+                        // Standard MCQ resolution with letter fallback
+                        let correctIndex = questionData.options.findIndex(opt => getRawText(opt) === rawAnsText);
+                        
+                        // Letter fallback if table answer is just A, B, C, D
+                        if (correctIndex === -1 && /^[A-D]$/i.test(rawAnsText.trim())) {
+                            correctIndex = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 }[rawAnsText.trim().toUpperCase()] ?? -1;
+                        }
+                        // Substring fallback
+                        if (correctIndex === -1) {
+                            correctIndex = questionData.options.findIndex(opt => {
+                                let optT = getRawText(opt);
+                                return optT && (rawAnsText.includes(optT) || optT.includes(rawAnsText));
+                            });
+                        }
                         questionData.correct = correctIndex !== -1 ? correctIndex : 0;
                     }
+                }
+
+                // Add solution / explanation if present
+                if (q.solution || q.explanation) {
+                    questionData.explanation = cleanHtmlMath(q.solution || q.explanation);
                 }
 
                 currentSection.questions.push(questionData);
@@ -154,68 +226,69 @@ EXTRACTION_JS = """
             }
         });
     } else {
-        // Fallback: Legacy table TR image scraping if window.questions is not populated
+        // Fallback: Legacy table TR scraping with direct child cells and formula cleaner
         let currentSectionObj = null;
         let currentSecKey = "";
         let qNum = 1;
         const optMap = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 };
-        const elements = document.querySelectorAll("h3, table tr");
         
-        elements.forEach(el => {
-            if (el.tagName === "H3" && el.innerText.toUpperCase().includes("SECTION")) {
-                let text = el.innerText.toUpperCase();
-                let secName = text.replace(/SECTION\\s*:?/i, '').trim();
-                secName = secName.charAt(0).toUpperCase() + secName.slice(1).toLowerCase();
-                currentSectionObj = { name: secName, icon: "", questions: [] };
-                currentSecKey = secName.substring(0, 3).toLowerCase();
-                qNum = 1;
-                data.sections.push(currentSectionObj);
-            } else if (el.tagName === "TR" && currentSectionObj) {
-                const tds = el.querySelectorAll("td");
-                if (tds.length >= 3) {
-                    const qNumberStr = tds[0].innerText.trim();
-                    const img = tds[1].querySelector("img");
-                    const imageUrl = img ? (img.src || img.getAttribute('src')) : null;
-                    if (imageUrl && !isNaN(parseInt(qNumberStr))) {
-                        let correctAns = 0;
-                        let qType = "mcq";
-                        const divs = tds[2].querySelectorAll("div");
-                        let answerText = "";
-                        divs.forEach(div => {
-                            if (div.innerText.includes("Correct Answer")) answerText = div.innerText;
-                        });
-                        if (answerText) {
-                            const match = answerText.match(/Correct Answers?\\s*:\\s*(.*)/i);
-                            if (match) {
-                                let rawAns = match[1].trim().toUpperCase();
-                                if (answerText.toLowerCase().includes("answers") || rawAns.includes(',')) {
-                                    qType = "multi_mcq";
-                                    let parts = rawAns.match(/[A-D]/g) || [];
-                                    correctAns = parts.map(s => optMap[s] !== undefined ? optMap[s] : 0);
-                                } else if (/^-?\\d+(\\.\\d+)?$/.test(rawAns)) {
-                                    qType = "integer";
-                                    correctAns = rawAns;
-                                } else {
-                                    qType = "mcq";
-                                    correctAns = optMap[rawAns] !== undefined ? optMap[rawAns] : 0;
-                                }
+        const mainTable = document.querySelector('#result table') || document.querySelector('table');
+        const rows = mainTable ? Array.from((mainTable.querySelector('tbody') || mainTable).children).filter(el => el.tagName === 'TR') : [];
+        
+        rows.forEach(row => {
+            const tds = Array.from(row.children).filter(el => el.tagName === 'TD');
+            if (tds.length >= 3) {
+                const qNumberStr = tds[0].innerText.trim();
+                const img = tds[1].querySelector("img");
+                const imageUrl = img ? (img.src || img.getAttribute('src')) : null;
+                const cleanQText = cleanHtmlMath(tds[1].innerHTML);
+                
+                if (!isNaN(parseInt(qNumberStr))) {
+                    if (!currentSectionObj) {
+                        currentSectionObj = { name: "Default Section", icon: "", questions: [] };
+                        currentSecKey = "def";
+                        data.sections.push(currentSectionObj);
+                    }
+
+                    let correctAns = 0;
+                    let qType = "mcq";
+                    const divs = tds[2].querySelectorAll("div");
+                    let answerText = "";
+                    divs.forEach(div => {
+                        if (div.innerText.includes("Correct Answer")) answerText = div.innerText;
+                    });
+                    if (answerText) {
+                        const match = answerText.match(/Correct Answers?\\s*:\\s*(.*)/i);
+                        if (match) {
+                            let rawAns = match[1].trim().toUpperCase();
+                            if (answerText.toLowerCase().includes("answers") || rawAns.includes(',')) {
+                                qType = "multi_mcq";
+                                let parts = rawAns.match(/[A-D]/g) || [];
+                                correctAns = parts.map(s => optMap[s] !== undefined ? optMap[s] : 0);
+                            } else if (/^-?\\d+(\\.\\d+)?$/.test(rawAns)) {
+                                qType = "integer";
+                                correctAns = rawAns;
+                            } else {
+                                qType = "mcq";
+                                correctAns = optMap[rawAns] !== undefined ? optMap[rawAns] : 0;
                             }
                         }
-                        let questionData = {
-                            id: `${testId}_${currentSecKey}_q${qNum}`,
-                            type: qType,
-                            question: "",
-                            image_url: imageUrl,
-                            correct: correctAns
-                        };
-                        if (qType === "integer") {
-                            questionData.answer = String(correctAns);
-                        } else {
-                            questionData.options = ["A", "B", "C", "D"];
-                        }
-                        currentSectionObj.questions.push(questionData);
-                        qNum++;
                     }
+                    let questionData = {
+                        id: `${testId}_${currentSecKey}_q${qNum}`,
+                        type: qType,
+                        question: cleanQText,
+                        image_url: imageUrl,
+                        images: imageUrl ? [imageUrl] : [],
+                        correct: correctAns
+                    };
+                    if (qType === "integer") {
+                        questionData.answer = String(correctAns);
+                    } else {
+                        questionData.options = ["A", "B", "C", "D"];
+                    }
+                    currentSectionObj.questions.push(questionData);
+                    qNum++;
                 }
             }
         });
@@ -224,10 +297,7 @@ EXTRACTION_JS = """
     // 3. Fallback: Extract Syllabus from Instructions modal 
     const instructionsContent = document.getElementById('instructionsContent');
     if (instructionsContent) {
-        const html = instructionsContent.innerHTML;
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-        data.syllabus = tempDiv.textContent.trim();
+        data.syllabus = instructionsContent.textContent.trim();
     } else {
         data.syllabus = "Syllabus not available";
     }
@@ -499,9 +569,6 @@ class QuizardBrain:
                 if norm_t in binfo["tests"]:
                     return True
 
-        if norm_t in self.global_tests:
-            return True
-
         return False
 
     def check_batch_tests(self, batch_name: str, candidate_titles: List[str]) -> Dict[str, Any]:
@@ -643,7 +710,12 @@ class QuizardJob:
 
                 batches_to_process: List[str] = []
 
-                if self.batch_input.lower() == 'all':
+                # Check if category itself is a direct batch URL
+                is_cat_url = bool(re.match(r'^https?://', self.category.strip(), re.IGNORECASE) or '/batch/' in self.category)
+                if is_cat_url:
+                    batches_to_process = [self.category.strip()]
+                    self.log(f"🔗 Detected direct batch URL in category: {self.category.strip()}", level="success")
+                elif self.batch_input.lower() == 'all':
                     self.log(f"🔍 Discovering all batches under category '{self.category}'...")
                     self.progress(2, 10, f"Finding batches for '{self.category}'...")
                     
@@ -697,29 +769,54 @@ class QuizardJob:
                     if self.stop_requested:
                         break
 
-                    self.active_batch = current_batch
-                    self.log(f"▶️ STARTING BATCH [{b_idx}/{batch_total}]: '{current_batch}'", level="batch")
-                    self.progress(b_idx - 1, batch_total, f"Batch {b_idx}/{batch_total}: {current_batch}", active_batch=current_batch)
+                    # Check if this batch item is a direct URL
+                    is_batch_url = bool(re.match(r'^https?://', current_batch.strip(), re.IGNORECASE) or '/batch/' in current_batch)
+                    direct_url = current_batch.strip() if is_batch_url else None
+                    
+                    if direct_url:
+                        url_match = re.search(r'/batch/[^/]+/([^/]+)/', direct_url)
+                        if url_match:
+                            display_batch_name = urllib.parse.unquote(url_match.group(1))
+                        else:
+                            display_batch_name = direct_url.rstrip('/').split('/')[-1]
+                    else:
+                        display_batch_name = current_batch
 
-                    current_id_prefix = re.sub(r'[^a-z0-9]', '_', current_batch.lower())
+                    self.active_batch = display_batch_name
+                    self.log(f"▶️ STARTING BATCH [{b_idx}/{batch_total}]: '{display_batch_name}'", level="batch")
+                    self.progress(b_idx - 1, batch_total, f"Batch {b_idx}/{batch_total}: {display_batch_name}", active_batch=display_batch_name)
+
+                    current_id_prefix = re.sub(r'[^a-z0-9]', '_', display_batch_name.lower())
                     current_id_prefix = re.sub(r'_+', '_', current_id_prefix).strip('_')
 
-                    safe_batch_name = sanitize_filename(current_batch)
+                    safe_batch_name = sanitize_filename(display_batch_name)
                     batch_dir = self.output_dir / safe_batch_name
                     batch_dir.mkdir(parents=True, exist_ok=True)
 
                     try:
-                        page.goto(self.base_url)
-                        page.wait_for_load_state("networkidle")
-                        page.get_by_text(self.category, exact=True).first.click()
-                        page.wait_for_timeout(1000)
+                        if direct_url:
+                            self.log(f"🌐 Navigating directly to batch URL: {direct_url}")
+                            page.goto(direct_url, timeout=60000)
+                            page.wait_for_load_state("networkidle")
+                            batch_url = page.url
+                        else:
+                            page.goto(self.base_url)
+                            page.wait_for_load_state("networkidle")
+                            page.get_by_text(self.category, exact=True).first.click()
+                            page.wait_for_timeout(1000)
 
-                        batch_locator = page.get_by_text(current_batch, exact=True).first
-                        batch_locator.scroll_into_view_if_needed()
-                        page.wait_for_timeout(500)
-                        batch_locator.click()
-                        page.wait_for_load_state("networkidle")
-                        batch_url = page.url
+                            batch_locator = page.get_by_text(current_batch, exact=True).first
+                            href = batch_locator.get_attribute("href")
+                            if href:
+                                batch_url = urllib.parse.urljoin(page.url, href)
+                                page.goto(batch_url)
+                                page.wait_for_load_state("networkidle")
+                            else:
+                                batch_locator.scroll_into_view_if_needed()
+                                page.wait_for_timeout(300)
+                                batch_locator.evaluate("el => el.click()")
+                                page.wait_for_load_state("networkidle")
+                                batch_url = page.url
 
                         test_cards_data = page.evaluate("""() => {
                             const cards = Array.from(document.querySelectorAll('.test-card'));
@@ -857,7 +954,7 @@ class QuizardJob:
                                     syllabus_text = None
                                     if self.use_api_syllabus:
                                         if batch_id and internal_test_id:
-                                            syllabus_text = fetch_syllabus(page, self.base_url, batch_id, current_batch, internal_test_id)
+                                            syllabus_text = fetch_syllabus(page, self.base_url, batch_id, display_batch_name, internal_test_id)
                                         else:
                                             syllabus_text = "Syllabus not available (No IDs found on page)"
 
@@ -866,31 +963,36 @@ class QuizardJob:
                                     duration = 60 if "short" in raw_test_name.lower() else 180
 
                                     buttons = page.locator('button:has-text("Start Test")')
-                                    buttons.nth(i).click()
+                                    buttons.nth(i).scroll_into_view_if_needed()
+                                    page.wait_for_timeout(300)
+                                    buttons.nth(i).click(force=True)
 
                                     start_quiz_btn = page.locator("text=/Start Quiz/i").first
-                                    start_quiz_btn.wait_for(state="visible", timeout=15000)
+                                    start_quiz_btn.wait_for(state="visible", timeout=20000)
                                     start_quiz_btn.scroll_into_view_if_needed()
-                                    page.wait_for_timeout(1500)
-                                    start_quiz_btn.click()
+                                    page.wait_for_timeout(1000)
+                                    start_quiz_btn.click(force=True)
 
                                     page.wait_for_load_state("domcontentloaded")
 
                                     submit_btn = page.locator("text=/Submit/i").first
-                                    submit_btn.wait_for(state="visible", timeout=15000)
+                                    submit_btn.wait_for(state="visible", timeout=20000)
                                     submit_btn.scroll_into_view_if_needed()
-                                    page.wait_for_timeout(1000)
+                                    page.wait_for_timeout(500)
                                     submit_btn.click(force=True)
 
                                     page.wait_for_timeout(1000)
-                                    page.locator("text=/Confirm/i").first.click()
+                                    confirm_btn = page.locator("text=/Confirm/i").first
+                                    if confirm_btn.count() > 0:
+                                        confirm_btn.click(force=True)
 
-                                    page.wait_for_selector('h3:has-text("Section")', timeout=20000)
+                                    page.wait_for_selector('#result table, h3:has-text("Section")', timeout=25000)
+                                    page.wait_for_timeout(1000)
 
                                     js_args = {
                                         "testName": raw_test_name,
                                         "testId": test_id,
-                                        "batchPrefix": current_batch,
+                                        "batchPrefix": display_batch_name,
                                         "duration": duration
                                     }
                                     extracted_data = page.evaluate(EXTRACTION_JS, js_args)
@@ -996,13 +1098,13 @@ class QuizardJob:
                                 zipf.write(jf, arcname)
 
                         self.zip_files.append({
-                            "batch": current_batch,
+                            "batch": display_batch_name,
                             "filename": zip_file_name,
                             "rel_path": zip_file_name,
                             "size_bytes": zip_path.stat().st_size,
                             "test_count": len(batch_json_files)
                         })
-                        self.log(f"🎉 Batch execution completed for '{current_batch}'! Zip size: {zip_path.stat().st_size / 1024:.1f} KB", level="success")
+                        self.log(f"🎉 Batch execution completed for '{display_batch_name}'! Zip size: {zip_path.stat().st_size / 1024:.1f} KB", level="success")
 
                 browser.close()
 
