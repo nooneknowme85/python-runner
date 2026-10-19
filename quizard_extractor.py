@@ -32,11 +32,24 @@ EXTRACTION_JS = """
 (args) => {
     const { testName, testId, batchPrefix, duration } = args;
     
+    function isAdvTest(name) {
+        if (!name) return false;
+        const s = String(name);
+        if (/mains/i.test(s) || /neet/i.test(s)) return false;
+        if (/advance/i.test(s)) return true;
+        if (/paper\s*[:\-_]?\s*[12]\b/i.test(s)) return true;
+        return false;
+    }
+    const isAdv = isAdvTest(testName) || isAdvTest(batchPrefix);
+    const advMarking = "📌 Pattern: JEE Advanced Marking Scheme\\n• Single MCQ: +3, -1\\n• Multi-Correct: +4 Full | Partial (+3, +2, +1) | -2 Penalty\\n• Numerical: +4, 0 (No negative marking)";
+    const testDesc = isAdv ? `${batchPrefix} - ${testName}\\n\\n${advMarking}` : `${batchPrefix} - ${testName}`;
+
     // Quizzy 2026 File-Level Schema
     const data = {
         id: testId,
         name: testName,
         displayName: `${batchPrefix} - ${testName}`,
+        description: testDesc,
         duration: duration,
         marking: { correct: 4, incorrect: -1 },
         exam_name: batchPrefix,
@@ -133,8 +146,16 @@ EXTRACTION_JS = """
             }
             let qNum = currentSection.questions.length + 1;
 
-            // Schema-compliant types
-            let qType = q.type === "multi" ? "multi_mcq" : (q.type || "mcq");
+            // Schema-compliant types: Direct mapping from Quizard's native q.type
+            let rawQType = (q.type || "").toLowerCase().trim();
+            let qType = "mcq";
+            if (rawQType === "multi" || rawQType === "multiple" || rawQType === "multimcq" || rawQType === "multi_mcq") {
+                qType = "multi_mcq";
+            } else if (rawQType === "integer" || rawQType === "numerical" || rawQType === "numeric" || rawQType === "integer_type") {
+                qType = "integer";
+            } else {
+                qType = "mcq";
+            }
             
             // Clean Question HTML & Math formulas
             let cleanQuestionHtml = cleanHtmlMath(q.question || "");
@@ -157,6 +178,23 @@ EXTRACTION_JS = """
 
             // Proceed if text OR image exists
             if (cleanQuestionHtml.length > 0 || primaryImageUrl) {
+                let tableAns = tableAnswers[index] || "";
+                let rawAnsText = getRawText(tableAns).trim();
+                let upperAns = rawAnsText.toUpperCase();
+
+                // Special case overrides from answer key
+                let isBonus = false;
+                if (upperAns === "ALL" || upperAns.includes("BONUS") || upperAns.includes("ALL OPTIONS")) {
+                    qType = "multi_mcq";
+                    isBonus = true;
+                } else if (qType === "mcq" && (rawAnsText.includes(',') || (Array.from(new Set(upperAns.match(/[A-E]/g) || [])).length > 1))) {
+                    // Safety: In case Quizard mislabeled a multi-choice question as single mcq
+                    qType = "multi_mcq";
+                } else if (qType === "mcq" && /^-?\d+(\.\d+)?$/.test(upperAns) && (!q.options || q.options.length === 0)) {
+                    // Safety: In case Quizard mislabeled an integer question as single mcq
+                    qType = "integer";
+                }
+
                 let questionData = {
                     id: `${testId}_${secName.substring(0,3).toLowerCase()}_q${qNum}`,
                     type: qType,
@@ -165,24 +203,28 @@ EXTRACTION_JS = """
                     images: allImages.length > 1 ? allImages : (primaryImageUrl ? [primaryImageUrl] : [])
                 };
 
-                let tableAns = tableAnswers[index] || "";
-                let rawAnsText = getRawText(tableAns);
-
                 if (qType === "integer") {
-                    questionData.answer = rawAnsText.replace(/[^0-9.\\-]/g, '') || rawAnsText;
+                    questionData.answer = rawAnsText.replace(/[^0-9.\-]/g, '') || rawAnsText;
+                    questionData.correct = null;
+                    questionData.options = null;
                 } else {
                     // Clean options, stripping wrapping <p>...</p> tags
                     let cleanOptions = (q.options || []).map(opt => {
                         let cleaned = cleanHtmlMath(opt);
-                        cleaned = cleaned.replace(/^<p\\s*[^>]*>/i, '').replace(/<\\/p>$/i, '').trim();
+                        cleaned = cleaned.replace(/^<p\s*[^>]*>/i, '').replace(/<\/p>$/i, '').trim();
                         return cleaned;
                     });
                     questionData.options = cleanOptions.length > 0 ? cleanOptions : ["A", "B", "C", "D"];
+                    questionData.answer = null;
                     
-                    if (qType === "multi_mcq") {
+                    if (isBonus) {
+                        questionData.type = "multi_mcq";
+                        questionData.is_bonus = true;
+                        questionData.correct = questionData.options.map((_, i) => i);
+                    } else if (qType === "multi_mcq") {
                         let matchedIndices = [];
                         const optLetters = ['A', 'B', 'C', 'D', 'E'];
-                        let letterMatches = rawAnsText.toUpperCase().match(/[A-E]/g);
+                        let letterMatches = Array.from(new Set(upperAns.match(/[A-E]/g) || []));
                         if (letterMatches && letterMatches.length > 0 && questionData.options.length <= 5) {
                             matchedIndices = letterMatches
                                 .map(l => optLetters.indexOf(l))
@@ -202,8 +244,8 @@ EXTRACTION_JS = """
                         let correctIndex = questionData.options.findIndex(opt => getRawText(opt) === rawAnsText);
                         
                         // Letter fallback if table answer is just A, B, C, D
-                        if (correctIndex === -1 && /^[A-D]$/i.test(rawAnsText.trim())) {
-                            correctIndex = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 }[rawAnsText.trim().toUpperCase()] ?? -1;
+                        if (correctIndex === -1 && /^[A-D]$/i.test(rawAnsText)) {
+                            correctIndex = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 }[rawAnsText.toUpperCase()] ?? -1;
                         }
                         // Substring fallback
                         if (correctIndex === -1) {
@@ -216,9 +258,15 @@ EXTRACTION_JS = """
                     }
                 }
 
-                // Add solution / explanation if present
-                if (q.solution || q.explanation) {
-                    questionData.explanation = cleanHtmlMath(q.solution || q.explanation);
+                // Add solution / explanation if present, and prepend bonus instruction if bonus
+                const bonusNotice = "⚠️ **Bonus Question / All Options Correct**\\n*This question was officially awarded as BONUS. Please manually add the positive marks (+4) to your total obtained marks if you did not select all options.*";
+                let officialExp = (q.solution || q.explanation) ? cleanHtmlMath(q.solution || q.explanation) : "";
+
+                if (isBonus) {
+                    questionData.is_bonus = true;
+                    questionData.explanation = officialExp ? `${bonusNotice}\\n\\n---\\n${officialExp}` : bonusNotice;
+                } else if (officialExp) {
+                    questionData.explanation = officialExp;
                 }
 
                 currentSection.questions.push(questionData);
@@ -251,6 +299,7 @@ EXTRACTION_JS = """
                     }
 
                     let correctAns = 0;
+                    let answerVal = null;
                     let qType = "mcq";
                     const divs = tds[2].querySelectorAll("div");
                     let answerText = "";
@@ -258,19 +307,37 @@ EXTRACTION_JS = """
                         if (div.innerText.includes("Correct Answer")) answerText = div.innerText;
                     });
                     if (answerText) {
-                        const match = answerText.match(/Correct Answers?\\s*:\\s*(.*)/i);
+                        const match = answerText.match(/Correct Answers?\s*:\s*(.*)/i);
                         if (match) {
-                            let rawAns = match[1].trim().toUpperCase();
-                            if (answerText.toLowerCase().includes("answers") || rawAns.includes(',')) {
+                            let rawAns = match[1].trim();
+                            let upperAns = rawAns.toUpperCase();
+
+                            let isBonus = false;
+                            // 1. ALL / BONUS
+                            if (upperAns === "ALL" || upperAns.includes("BONUS") || upperAns.includes("ALL OPTIONS")) {
                                 qType = "multi_mcq";
-                                let parts = rawAns.match(/[A-D]/g) || [];
-                                correctAns = parts.map(s => optMap[s] !== undefined ? optMap[s] : 0);
-                            } else if (/^-?\\d+(\\.\\d+)?$/.test(rawAns)) {
+                                correctAns = [0, 1, 2, 3];
+                                isBonus = true;
+                            }
+                            // 2. INTEGER / NUMERICAL
+                            else if (/^-?\d+(\.\d+)?$/.test(upperAns)) {
                                 qType = "integer";
-                                correctAns = rawAns;
-                            } else {
-                                qType = "mcq";
-                                correctAns = optMap[rawAns] !== undefined ? optMap[rawAns] : 0;
+                                answerVal = upperAns;
+                                correctAns = null;
+                            }
+                            // 3. MULTI-MCQ (only when comma-separated or 2+ distinct letters)
+                            else {
+                                let letterParts = Array.from(new Set(upperAns.match(/[A-D]/g) || []));
+                                if (rawAns.includes(',') || letterParts.length > 1) {
+                                    qType = "multi_mcq";
+                                    correctAns = letterParts.map(s => optMap[s]).filter(x => x !== undefined);
+                                    if (correctAns.length === 0) correctAns = [0];
+                                } else {
+                                    qType = "mcq";
+                                    correctAns = letterParts.length === 1 && optMap[letterParts[0]] !== undefined 
+                                        ? optMap[letterParts[0]] 
+                                        : (optMap[upperAns] !== undefined ? optMap[upperAns] : 0);
+                                }
                             }
                         }
                     }
@@ -282,10 +349,17 @@ EXTRACTION_JS = """
                         images: imageUrl ? [imageUrl] : [],
                         correct: correctAns
                     };
+                    if (isBonus) {
+                        questionData.is_bonus = true;
+                        questionData.explanation = "⚠️ **Bonus Question / All Options Correct**\\n*This question was officially awarded as BONUS. Please manually add the positive marks (+4) to your total obtained marks if you did not select all options.*";
+                    }
                     if (qType === "integer") {
-                        questionData.answer = String(correctAns);
+                        questionData.answer = answerVal;
+                        questionData.correct = null;
+                        questionData.options = null;
                     } else {
                         questionData.options = ["A", "B", "C", "D"];
+                        questionData.answer = null;
                     }
                     currentSectionObj.questions.push(questionData);
                     qNum++;

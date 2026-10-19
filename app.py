@@ -32,6 +32,7 @@ if hasattr(sys.stderr, "reconfigure"):
 import quizard_extractor as QUIZARD
 import ray_book_extractor as RBE
 import allen_cropper_job as ACJ
+import studyaura_extractor as STUDYAURA
 import uuid
 
 HERE = Path(__file__).parent
@@ -51,6 +52,9 @@ ALLEN_INPUTS_DIR.mkdir(parents=True, exist_ok=True)
 ALLEN_OUTPUTS_DIR = WORK_DIR / "allen_cropper_outputs"
 ALLEN_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
+STUDYAURA_OUTPUT_DIR = WORK_DIR / "studyaura_outputs"
+STUDYAURA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 # Quizard extraction state
 active_quizard_job: Optional[QUIZARD.QuizardJob] = None
 quizard_lock = threading.Lock()
@@ -62,6 +66,10 @@ ray_book_lock = threading.Lock()
 # Allen Cropper extraction state
 active_allen_job: Optional[ACJ.AllenCropperJob] = None
 allen_lock = threading.Lock()
+
+# StudyAura extraction state
+active_studyaura_job: Optional[STUDYAURA.StudyAuraJob] = None
+studyaura_lock = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -108,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500, f"Error reading file: {e}")
 
     def do_GET(self):
-        global active_quizard_job, active_ray_book_job, active_allen_job
+        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -308,11 +316,65 @@ class Handler(BaseHTTPRequestHandler):
                     })
             self.send_json({"files": sorted(files, key=lambda x: x["modified"], reverse=True)})
 
+        # -------------------------------------------------------------
+        # StudyAura Extractor APIs
+        # -------------------------------------------------------------
+        elif path == "/api/studyaura/status":
+            with studyaura_lock:
+                if not active_studyaura_job:
+                    self.send_json({"state": "idle", "message": "No StudyAura job running", "logs": []})
+                    return
+                qs = parse_qs(parsed.query)
+                since_idx = int(qs.get("since", ["0"])[0])
+                res = {
+                    "id": active_studyaura_job.id,
+                    "state": active_studyaura_job.state,
+                    "message": active_studyaura_job.message,
+                    "done": active_studyaura_job.done,
+                    "total": active_studyaura_job.total,
+                    "active_item": active_studyaura_job.active_item,
+                    "batch_name": active_studyaura_job.batch_name,
+                    "logs": active_studyaura_job.logs[since_idx:],
+                    "log_total": len(active_studyaura_job.logs),
+                    "zip_files": active_studyaura_job.zip_files,
+                    "json_files": active_studyaura_job.json_files,
+                    "failed_tracker": active_studyaura_job.failed_tracker,
+                    "collected_count": active_studyaura_job.collected_count,
+                }
+                self.send_json(res)
+
+        elif path == "/api/studyaura/download":
+            qs = parse_qs(parsed.query)
+            rel_file = qs.get("file", [""])[0]
+            if not rel_file:
+                self.send_error(400, "Missing file parameter")
+                return
+            safe_path = (STUDYAURA_OUTPUT_DIR / rel_file).resolve()
+            if not str(safe_path).startswith(str(STUDYAURA_OUTPUT_DIR.resolve())):
+                self.send_error(403, "Access Denied")
+                return
+            if not safe_path.is_file():
+                self.send_error(404, "File Not Found")
+                return
+            ctype = "application/zip" if safe_path.suffix.lower() == ".zip" else "application/json"
+            self.serve_file(safe_path, forced_type=ctype, download_name=safe_path.name)
+
+        elif path == "/api/studyaura/files":
+            zips = []
+            for z in STUDYAURA_OUTPUT_DIR.glob("*.zip"):
+                zips.append({
+                    "filename": z.name,
+                    "size_bytes": z.stat().st_size,
+                    "size_mb": round(z.stat().st_size / (1024 * 1024), 2),
+                    "modified": z.stat().st_mtime
+                })
+            self.send_json({"zips": sorted(zips, key=lambda x: x["modified"], reverse=True)})
+
         else:
             self.send_error(404, "Not Found")
 
     def do_POST(self):
-        global active_quizard_job, active_ray_book_job, active_allen_job
+        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job
         parsed = urlparse(self.path)
         path = parsed.path
         length = int(self.headers.get("Content-Length", 0))
@@ -565,6 +627,62 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"error": str(e)}, code=500)
 
+        # -------------------------------------------------------------
+        # StudyAura Extractor POST Endpoints
+        # -------------------------------------------------------------
+        elif path == "/api/studyaura/discover":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+            batch_input = payload.get("batch_id") or payload.get("batch_url") or ""
+            info = STUDYAURA.discover_batch_info(batch_input)
+            self.send_json(info)
+
+        elif path == "/api/studyaura/start":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+            batch_input = payload.get("batch_id") or payload.get("batch_url") or ""
+            mode = payload.get("mode", "all")
+            subjects = payload.get("subjects", [])
+            if not batch_input:
+                self.send_json({"error": "Batch ID or URL is required"}, code=400)
+                return
+
+            with studyaura_lock:
+                if active_studyaura_job and active_studyaura_job.state in ("queued", "running"):
+                    self.send_json({"id": active_studyaura_job.id, "state": active_studyaura_job.state, "message": "A StudyAura job is already running"})
+                    return
+
+                active_studyaura_job = STUDYAURA.StudyAuraJob(
+                    batch_input=batch_input,
+                    extract_mode=mode,
+                    selected_subjects=subjects,
+                    output_dir=STUDYAURA_OUTPUT_DIR
+                )
+                t = threading.Thread(target=active_studyaura_job.run, daemon=True)
+                t.start()
+                self.send_json({"id": active_studyaura_job.id, "state": "running", "message": "StudyAura extraction started"})
+
+        elif path == "/api/studyaura/stop":
+            with studyaura_lock:
+                if active_studyaura_job and active_studyaura_job.state in ("queued", "running"):
+                    active_studyaura_job.stop()
+                    self.send_json({"success": True, "message": "Stop signal sent to StudyAura Extractor"})
+                else:
+                    self.send_json({"success": False, "message": "No active StudyAura job running"})
+
+        elif path == "/api/studyaura/open-folder":
+            try:
+                folder = str(STUDYAURA_OUTPUT_DIR.resolve())
+                if os.name == 'nt':
+                    os.startfile(folder)
+                self.send_json({"success": True, "path": folder})
+            except Exception as e:
+                self.send_json({"error": str(e)}, code=500)
+
         else:
             self.send_error(404, "Not Found")
 
@@ -577,6 +695,7 @@ def run(port: int = 8080):
     print(f"👉 Quizard outputs:      {QUIZARD_OUTPUT_DIR.resolve()}")
     print(f"👉 Ray Book outputs:     {RAY_BOOK_OUTPUT_DIR.resolve()}")
     print(f"👉 Allen Cropper outputs: {ALLEN_OUTPUTS_DIR.resolve()}")
+    print(f"👉 StudyAura outputs:    {STUDYAURA_OUTPUT_DIR.resolve()}")
     print(f"=======================================================\n")
     try:
         server.serve_forever()

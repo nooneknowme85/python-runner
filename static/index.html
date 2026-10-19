@@ -1143,6 +1143,9 @@
         <button type="button" id="nav-btn-quizard" class="view-switch-btn active">
           ⚡ Quizard Extractor
         </button>
+        <button type="button" id="nav-btn-studyaura" class="view-switch-btn">
+          ✨ StudyAura Extractor
+        </button>
         <button type="button" id="nav-btn-ray-book" class="view-switch-btn">
           📚 Ray Book Extractor
         </button>
@@ -2044,6 +2047,199 @@
       </div>
     </div>
 
+    <!-- ========================================================================= -->
+    <!-- VIEW 4: STUDYAURA EXTRACTOR -->
+    <!-- ========================================================================= -->
+    <div id="view-studyaura" style="display: none;">
+      <div class="hero-card">
+        <div class="hero-header">
+          <span class="hero-badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
+            STUDYAURA &amp; STUDYSPARK AUTOMATION
+          </span>
+          <h1 class="hero-title">StudyAura Batch &amp; Test Extractor</h1>
+          <p class="hero-desc">Extracts chapterwise DPPs and full sectional Test Series papers from StudyAura into 100% Quizzy-compatible JSON packages with official scoring and CloudFront CDN diagram resolution.</p>
+        </div>
+
+        <form id="studyaura-form" onsubmit="event.preventDefault();">
+          <!-- Step 1: Batch Identifier & Discovery -->
+          <div class="card" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+              <label class="form-label" for="sa-batch-input" style="font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 0;">
+                Target Batch ID or URL
+              </label>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">PW PenPencil Engine</span>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <input type="text" id="sa-batch-input" class="form-input" style="flex: 1; min-width: 280px;" value="698ad3519549b300a5e1cc6a" placeholder="e.g. 698ad3519549b300a5e1cc6a or https://studyaura.online/batches/..." required>
+              <button type="button" id="sa-btn-discover" class="btn btn-primary" onclick="discoverStudyAuraBatch()" style="min-width: 160px; background: linear-gradient(135deg, #0284c7, #2563eb);">
+                🔍 Discover Batch
+              </button>
+            </div>
+
+            <!-- Quick Example Chips -->
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.65rem; align-items: center;">
+              <span style="font-size: 0.76rem; color: var(--text-muted);">Quick Batches:</span>
+              <span class="chip-badge" onclick="document.getElementById('sa-batch-input').value='698ad3519549b300a5e1cc6a'; discoverStudyAuraBatch();">
+                🎯 Arjuna NEET (698ad351...)
+              </span>
+              <span class="chip-badge" onclick="document.getElementById('sa-batch-input').value='6633b49911e8600018596c81'; discoverStudyAuraBatch();">
+                ⚛️ Lakshya JEE (6633b499...)
+              </span>
+              <span class="chip-badge" onclick="document.getElementById('sa-batch-input').value='665eb80be23a310018867a57'; discoverStudyAuraBatch();">
+                ⚡ Yakeen NEET (665eb80b...)
+              </span>
+            </div>
+          </div>
+
+          <!-- Step 2: Batch Discovery Results & Subject Selection -->
+          <div id="sa-discovery-card" class="card" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h3 id="sa-discovered-title" style="font-size: 1.1rem; color: #38bdf8; font-weight: 700;">
+                  StudyAura Batch
+                </h3>
+                <span id="sa-discovered-meta" style="font-size: 0.82rem; color: var(--text-muted);">
+                  Ready to discover
+                </span>
+              </div>
+              <span id="sa-fee-badge" class="tier-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 0.8rem; padding: 0.3rem 0.75rem;">
+                FREE BATCH
+              </span>
+            </div>
+
+            <!-- Mode Selector: All / DPPs / Tests -->
+            <div style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 700; color: white; margin-bottom: 0.5rem;">
+                Extraction Scope:
+              </label>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.65rem;">
+                <label class="allen-opt-card active" id="sa-mode-all-card" style="cursor: pointer;" onclick="selectStudyAuraMode('all')">
+                  <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <input type="radio" name="sa-extract-mode" value="all" checked style="width: 18px; height: 18px; accent-color: #38bdf8;">
+                    <div>
+                      <div style="font-weight: 700; color: white; font-size: 0.92rem;">🚀 All Quizzes</div>
+                      <div style="font-size: 0.76rem; color: var(--text-muted);">DPPs + Full Test Series</div>
+                    </div>
+                  </div>
+                </label>
+
+                <label class="allen-opt-card" id="sa-mode-dpp-card" style="cursor: pointer;" onclick="selectStudyAuraMode('dpp')">
+                  <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <input type="radio" name="sa-extract-mode" value="dpp" style="width: 18px; height: 18px; accent-color: #38bdf8;">
+                    <div>
+                      <div style="font-weight: 700; color: white; font-size: 0.92rem;">📚 Chapter DPPs Only</div>
+                      <div style="font-size: 0.76rem; color: var(--text-muted);">Chapterwise practice problems</div>
+                    </div>
+                  </div>
+                </label>
+
+                <label class="allen-opt-card" id="sa-mode-tests-card" style="cursor: pointer;" onclick="selectStudyAuraMode('tests')">
+                  <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <input type="radio" name="sa-extract-mode" value="tests" style="width: 18px; height: 18px; accent-color: #38bdf8;">
+                    <div>
+                      <div style="font-weight: 700; color: white; font-size: 0.92rem;">🧪 Test Series Only</div>
+                      <div style="font-size: 0.76rem; color: var(--text-muted);">Full sectional &amp; mock papers</div>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Subject Multi-Select Block -->
+            <div id="sa-subjects-block" style="margin-top: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+                <span style="font-weight: 600; font-size: 0.88rem; color: var(--text);">
+                  Subjects to Download (<span id="sa-selected-subj-count" style="color: #38bdf8;">0</span>/<span id="sa-total-subj-count">0</span>):
+                </span>
+                <div style="display: flex; gap: 0.4rem;">
+                  <button type="button" class="token-action-btn" onclick="saSelectAllSubjects(true)">All</button>
+                  <button type="button" class="token-action-btn" onclick="saSelectAllSubjects(false)">None</button>
+                </div>
+              </div>
+              <div id="sa-subjects-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; background: rgba(10, 15, 30, 0.5); padding: 0.85rem; border: 1px solid var(--border); border-radius: 0.75rem; max-height: 180px; overflow-y: auto;">
+                <span style="color: var(--text-muted); font-size: 0.84rem; padding: 1rem 0; text-align: center; grid-column: 1 / -1;">
+                  Click "🔍 Discover Batch" above to load subject list.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Action Buttons -->
+          <div class="action-buttons-group" style="display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;">
+            <button type="button" id="sa-btn-start" class="btn btn-primary" onclick="startStudyAuraJob()" style="flex: 2; min-width: 200px; background: linear-gradient(135deg, #10b981, #059669);">
+              🚀 Start StudyAura Extraction
+            </button>
+            <button type="button" id="sa-btn-stop" class="btn btn-danger" onclick="stopStudyAuraJob()" style="flex: 1; min-width: 140px; display: none;">
+              ⏹️ Stop Extraction
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="openStudyAuraFolder()" style="flex: 1; min-width: 150px;">
+              📁 Open Outputs
+            </button>
+          </div>
+        </form>
+
+        <!-- Progress & Terminal Section -->
+        <div class="terminal-container" id="sa-terminal-section" style="margin-top: 1.75rem;">
+          <div class="terminal-header">
+            <div class="terminal-title">
+              <span class="terminal-indicator" id="sa-status-dot"></span>
+              <span id="sa-status-text">StudyAura Console — Ready</span>
+            </div>
+            <div class="terminal-actions">
+              <button type="button" class="terminal-action-btn" onclick="clearTerminal('studyaura-terminal')">Clear</button>
+              <button type="button" class="terminal-action-btn" onclick="copyLogs('studyaura-terminal')">Copy Logs</button>
+            </div>
+          </div>
+
+          <div style="padding: 1rem 1.25rem; background: rgba(15, 23, 42, 0.95); border-bottom: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; font-size: 0.82rem;">
+              <span id="sa-progress-label" style="color: var(--text-muted);">Status: Idle</span>
+              <span id="sa-progress-pct" style="color: #38bdf8; font-weight: 700;">0%</span>
+            </div>
+            <div class="progress-bar-bg" style="height: 8px;">
+              <div class="progress-bar-fill" id="sa-progress-bar" style="width: 0%; background: linear-gradient(90deg, #10b981, #38bdf8);"></div>
+            </div>
+          </div>
+
+          <div class="terminal-body" id="studyaura-terminal" style="min-height: 180px; max-height: 380px;">
+            <div class="log-line">
+              <span class="log-time">[Ready]</span> <span class="log-msg log-info">StudyAura Extractor ready. Enter a Batch ID and click "Start StudyAura Extraction".</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Results & Download Section -->
+        <div id="sa-results-card" class="card" style="display: none; margin-top: 1.75rem; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.04);">
+          <h3 style="font-size: 1.15rem; color: #34d399; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🎉</span> Extraction Complete!
+          </h3>
+          <p id="sa-results-summary" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+            Successfully generated Quizzy package. Download the structured ZIP below:
+          </p>
+
+          <div id="sa-zip-downloads-wrap">
+            <h4 style="font-size: 0.9rem; color: var(--text); margin-bottom: 0.65rem;">
+              📦 Download Formatted ZIP Archive:
+            </h4>
+            <div id="sa-zip-list"></div>
+          </div>
+        </div>
+
+        <!-- Previous Outputs History -->
+        <div class="card" style="margin-top: 1.75rem;">
+          <h4 style="font-size: 0.95rem; color: var(--text); margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+            <span>🗂️ Previous StudyAura Archives</span>
+            <button type="button" class="token-action-btn" onclick="loadStudyAuraFilesHistory()">🔄 Refresh</button>
+          </h4>
+          <div id="sa-history-list">
+            <p style="font-size: 0.82rem; color: var(--text-muted);">No previous outputs found yet.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 
   <!-- Bulk Paste Modal -->
@@ -2074,17 +2270,21 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     //            TAB VIEW SWITCHING
     // ==========================================
     const navBtnQuizard = document.getElementById('nav-btn-quizard');
+    const navBtnStudyAura = document.getElementById('nav-btn-studyaura');
     const navBtnRayBook = document.getElementById('nav-btn-ray-book');
     const navBtnAllen = document.getElementById('nav-btn-allen');
     const viewQuizard = document.getElementById('view-quizard');
+    const viewStudyAura = document.getElementById('view-studyaura');
     const viewRayBook = document.getElementById('view-ray-book');
     const viewAllen = document.getElementById('view-allen');
 
     function switchView(viewName) {
       if (navBtnQuizard) navBtnQuizard.classList.remove('active');
+      if (navBtnStudyAura) navBtnStudyAura.classList.remove('active');
       if (navBtnRayBook) navBtnRayBook.classList.remove('active');
       if (navBtnAllen) navBtnAllen.classList.remove('active');
       if (viewQuizard) viewQuizard.style.display = 'none';
+      if (viewStudyAura) viewStudyAura.style.display = 'none';
       if (viewRayBook) viewRayBook.style.display = 'none';
       if (viewAllen) viewAllen.style.display = 'none';
 
@@ -2092,6 +2292,11 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
         if (navBtnQuizard) navBtnQuizard.classList.add('active');
         if (viewQuizard) viewQuizard.style.display = 'block';
         localStorage.setItem('active_view', 'quizard');
+      } else if (viewName === 'studyaura') {
+        if (navBtnStudyAura) navBtnStudyAura.classList.add('active');
+        if (viewStudyAura) viewStudyAura.style.display = 'block';
+        localStorage.setItem('active_view', 'studyaura');
+        loadStudyAuraFilesHistory();
       } else if (viewName === 'allen') {
         if (navBtnAllen) navBtnAllen.classList.add('active');
         if (viewAllen) viewAllen.style.display = 'block';
@@ -2104,11 +2309,14 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     }
 
     if (navBtnQuizard) navBtnQuizard.addEventListener('click', () => switchView('quizard'));
+    if (navBtnStudyAura) navBtnStudyAura.addEventListener('click', () => switchView('studyaura'));
     if (navBtnRayBook) navBtnRayBook.addEventListener('click', () => switchView('ray-book'));
     if (navBtnAllen) navBtnAllen.addEventListener('click', () => switchView('allen'));
 
     const savedView = localStorage.getItem('active_view');
-    if (savedView === 'ray-book') {
+    if (savedView === 'studyaura') {
+      switchView('studyaura');
+    } else if (savedView === 'ray-book') {
       switchView('ray-book');
     } else if (savedView === 'allen') {
       switchView('allen');
@@ -3732,6 +3940,356 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
         }
       } catch (e) {
         console.error('Error loading history:', e);
+      }
+    }
+
+    // =========================================================================
+    // STUDYAURA EXTRACTOR CONTROLLER
+    // =========================================================================
+    let saDiscoveredSubjects = [];
+    let saPollInterval = null;
+    let saSinceLogIdx = 0;
+    let saSelectedMode = 'all';
+
+    function selectStudyAuraMode(mode) {
+      saSelectedMode = mode;
+      const allCards = ['all', 'dpp', 'tests'];
+      allCards.forEach(m => {
+        const card = document.getElementById(`sa-mode-${m}-card`);
+        if (card) {
+          if (m === mode) {
+            card.classList.add('active');
+          } else {
+            card.classList.remove('active');
+          }
+        }
+      });
+      const radio = document.querySelector(`input[name="sa-extract-mode"][value="${mode}"]`);
+      if (radio) radio.checked = true;
+    }
+
+    async function discoverStudyAuraBatch() {
+      const inputEl = document.getElementById('sa-batch-input');
+      const btn = document.getElementById('sa-btn-discover');
+      const batchInput = (inputEl ? inputEl.value : '').trim();
+
+      if (!batchInput) {
+        alert('Please enter a StudyAura Batch ID or URL.');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Discovering...';
+      }
+
+      appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Connecting to StudyAura API for: ${batchInput}...`, 'info');
+
+      try {
+        const res = await fetch('/api/studyaura/discover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: batchInput })
+        });
+        const data = await res.json();
+
+        if (data.error || !data.success) {
+          appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Discovery failed: ${data.error || 'Unknown error'}`, 'error');
+          alert(`Batch Discovery Failed: ${data.error || 'Check batch ID or connection.'}`);
+          return;
+        }
+
+        saDiscoveredSubjects = data.subjects || [];
+
+        const titleEl = document.getElementById('sa-discovered-title');
+        const metaEl = document.getElementById('sa-discovered-meta');
+        const feeEl = document.getElementById('sa-fee-badge');
+        const countSelectedEl = document.getElementById('sa-selected-subj-count');
+        const countTotalEl = document.getElementById('sa-total-subj-count');
+        const container = document.getElementById('sa-subjects-container');
+
+        if (titleEl) titleEl.innerText = data.batch_name || 'StudyAura Batch';
+        if (metaEl) metaEl.innerText = `Batch ID: ${data.batch_id} • ${data.subject_count || 0} Subjects Available`;
+        if (feeEl) feeEl.innerText = data.fee_id ? 'BATCH LINKED' : 'FREE BATCH';
+        if (countTotalEl) countTotalEl.innerText = saDiscoveredSubjects.length;
+
+        if (container) {
+          if (saDiscoveredSubjects.length === 0) {
+            container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.84rem; padding: 0.75rem 0; text-align: center; grid-column: 1 / -1;">No individual subject breakdown found. Full batch will be extracted.</span>';
+          } else {
+            container.innerHTML = saDiscoveredSubjects.map((s, idx) => {
+              const sName = (typeof s === 'string') ? s : (s.subject || s.name || s.title || `Subject ${idx + 1}`);
+              const sSlug = (typeof s === 'object' && s.slug) ? s.slug : sName;
+              return `
+                <label style="display: flex; align-items: center; gap: 0.5rem; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.55rem 0.75rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" name="sa-subject-check" value="${escapeHtml(sSlug)}" checked style="width: 17px; height: 17px; accent-color: #38bdf8;" onchange="updateSaSubjectCount()">
+                  <span style="font-size: 0.84rem; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(sName)}">
+                    ${escapeHtml(sName)}
+                  </span>
+                </label>
+              `;
+            }).join('');
+          }
+        }
+
+        updateSaSubjectCount();
+        appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Discovered batch "${data.batch_name}" with ${saDiscoveredSubjects.length} subjects.`, 'success');
+
+      } catch (err) {
+        console.error('StudyAura discovery error:', err);
+        appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Discovery network error: ${err.message}`, 'error');
+        alert(`Discovery error: ${err.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = '🔍 Discover Batch';
+        }
+      }
+    }
+
+    function saSelectAllSubjects(select) {
+      const checkboxes = document.querySelectorAll('#sa-subjects-container input[name="sa-subject-check"]');
+      checkboxes.forEach(cb => { cb.checked = Boolean(select); });
+      updateSaSubjectCount();
+    }
+
+    function updateSaSubjectCount() {
+      const checkedBoxes = document.querySelectorAll('#sa-subjects-container input[name="sa-subject-check"]:checked');
+      const countEl = document.getElementById('sa-selected-subj-count');
+      if (countEl) countEl.innerText = checkedBoxes.length;
+    }
+
+    async function startStudyAuraJob() {
+      const inputEl = document.getElementById('sa-batch-input');
+      const batchInput = (inputEl ? inputEl.value : '').trim();
+
+      if (!batchInput) {
+        alert('Please enter a StudyAura Batch ID or URL.');
+        return;
+      }
+
+      const checkedBoxes = Array.from(document.querySelectorAll('#sa-subjects-container input[name="sa-subject-check"]:checked'));
+      const selectedSubjects = checkedBoxes.map(cb => cb.value);
+
+      if (saDiscoveredSubjects.length > 0 && selectedSubjects.length === 0) {
+        alert('Please select at least one subject to extract.');
+        return;
+      }
+
+      const btnStart = document.getElementById('sa-btn-start');
+      const btnStop = document.getElementById('sa-btn-stop');
+      const resultsCard = document.getElementById('sa-results-card');
+      const pBar = document.getElementById('sa-progress-bar');
+      const pPct = document.getElementById('sa-progress-pct');
+      const pLabel = document.getElementById('sa-progress-label');
+      const dot = document.getElementById('sa-status-dot');
+      const statusText = document.getElementById('sa-status-text');
+
+      if (btnStart) btnStart.style.display = 'none';
+      if (btnStop) btnStop.style.display = 'inline-block';
+      if (resultsCard) resultsCard.style.display = 'none';
+      if (pBar) pBar.style.width = '0%';
+      if (pPct) pPct.innerText = '0%';
+      if (pLabel) pLabel.innerText = 'Initiating StudyAura extraction job...';
+      if (dot) dot.className = 'terminal-indicator status-running';
+      if (statusText) statusText.innerText = 'StudyAura Console — Running';
+
+      saSinceLogIdx = 0;
+      appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Launching StudyAura extraction for batch ${batchInput} [Mode: ${saSelectedMode}]...`, 'info');
+
+      try {
+        const res = await fetch('/api/studyaura/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: batchInput,
+            mode: saSelectedMode,
+            subjects: selectedSubjects
+          })
+        });
+        const data = await res.json();
+
+        if (data.error) {
+          appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Start failed: ${data.error}`, 'error');
+          alert(`Failed to start StudyAura extraction: ${data.error}`);
+          if (btnStart) btnStart.style.display = 'inline-block';
+          if (btnStop) btnStop.style.display = 'none';
+          return;
+        }
+
+        if (saPollInterval) clearInterval(saPollInterval);
+        saPollInterval = setInterval(pollStudyAuraStatus, 1200);
+
+      } catch (err) {
+        console.error('Error starting StudyAura job:', err);
+        appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Network error starting job: ${err.message}`, 'error');
+        alert(`Error starting job: ${err.message}`);
+        if (btnStart) btnStart.style.display = 'inline-block';
+        if (btnStop) btnStop.style.display = 'none';
+      }
+    }
+
+    async function pollStudyAuraStatus() {
+      try {
+        const res = await fetch(`/api/studyaura/status?since=${saSinceLogIdx}`);
+        const data = await res.json();
+
+        if (data.logs && data.logs.length > 0) {
+          data.logs.forEach(l => {
+            appendLog('studyaura-terminal', l.time || '', l.msg || '', l.level || 'info');
+          });
+          saSinceLogIdx = (data.log_total !== undefined) ? data.log_total : (saSinceLogIdx + data.logs.length);
+        }
+
+        const pBar = document.getElementById('sa-progress-bar');
+        const pPct = document.getElementById('sa-progress-pct');
+        const pLabel = document.getElementById('sa-progress-label');
+        const dot = document.getElementById('sa-status-dot');
+        const statusText = document.getElementById('sa-status-text');
+        const btnStart = document.getElementById('sa-btn-start');
+        const btnStop = document.getElementById('sa-btn-stop');
+
+        let pct = 0;
+        if (data.total > 0) {
+          pct = Math.min(100, Math.round((data.done / data.total) * 100));
+        } else if (data.collected_count > 0) {
+          pct = Math.min(95, data.collected_count * 4);
+        }
+
+        if (pBar) pBar.style.width = pct + '%';
+        if (pPct) pPct.innerText = pct + '%';
+        if (pLabel) {
+          pLabel.innerText = data.active_item || data.message || `Processed ${data.done || 0}/${data.total || 0}`;
+        }
+
+        if (data.state === 'running') {
+          if (dot) dot.className = 'terminal-indicator status-running';
+          if (statusText) statusText.innerText = `StudyAura Console — Running (${data.collected_count || 0} collected)`;
+        } else if (data.state === 'finished') {
+          if (saPollInterval) { clearInterval(saPollInterval); saPollInterval = null; }
+          if (btnStart) btnStart.style.display = 'inline-block';
+          if (btnStop) btnStop.style.display = 'none';
+          if (dot) dot.className = 'terminal-indicator status-success';
+          if (statusText) statusText.innerText = 'StudyAura Console — Complete';
+          if (pBar) pBar.style.width = '100%';
+          if (pPct) pPct.innerText = '100%';
+          if (pLabel) pLabel.innerText = data.message || 'Extraction finished successfully!';
+          renderStudyAuraResults(data);
+          loadStudyAuraFilesHistory();
+        } else if (data.state === 'stopped') {
+          if (saPollInterval) { clearInterval(saPollInterval); saPollInterval = null; }
+          if (btnStart) btnStart.style.display = 'inline-block';
+          if (btnStop) btnStop.style.display = 'none';
+          if (dot) dot.className = 'terminal-indicator';
+          if (statusText) statusText.innerText = 'StudyAura Console — Stopped';
+          if (pLabel) pLabel.innerText = data.message || 'Job stopped.';
+          loadStudyAuraFilesHistory();
+        } else if (data.state === 'error') {
+          if (saPollInterval) { clearInterval(saPollInterval); saPollInterval = null; }
+          if (btnStart) btnStart.style.display = 'inline-block';
+          if (btnStop) btnStop.style.display = 'none';
+          if (dot) dot.className = 'terminal-indicator status-error';
+          if (statusText) statusText.innerText = 'StudyAura Console — Error';
+          if (pLabel) pLabel.innerText = data.message || 'Extraction failed.';
+        }
+
+      } catch (err) {
+        console.error('Error polling StudyAura status:', err);
+      }
+    }
+
+    async function stopStudyAuraJob() {
+      try {
+        await fetch('/api/studyaura/stop', { method: 'POST' });
+        appendLog('studyaura-terminal', new Date().toLocaleTimeString(), 'Stopping StudyAura job...', 'warning');
+      } catch (err) {
+        console.error('Error stopping StudyAura job:', err);
+      }
+    }
+
+    async function openStudyAuraFolder() {
+      try {
+        const res = await fetch('/api/studyaura/open-folder', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          appendLog('studyaura-terminal', new Date().toLocaleTimeString(), `Opened output directory: ${data.path}`, 'info');
+        } else {
+          alert(`Output directory: ${data.path || 'workspace/studyaura_outputs'}`);
+        }
+      } catch (err) {
+        console.error('Error opening folder:', err);
+      }
+    }
+
+    function renderStudyAuraResults(jobData) {
+      const resultsCard = document.getElementById('sa-results-card');
+      const summaryText = document.getElementById('sa-results-summary');
+      const zipList = document.getElementById('sa-zip-list');
+
+      if (!resultsCard) return;
+
+      const hasZips = jobData.zip_files && jobData.zip_files.length > 0;
+      if (hasZips) {
+        resultsCard.style.display = 'block';
+        if (summaryText) {
+          summaryText.innerText = `Successfully extracted ${jobData.collected_count || 0} quizzes into standard Quizzy packages with 100% schema compatibility. Download your structured archive below:`;
+        }
+        if (zipList) {
+          zipList.innerHTML = jobData.zip_files.map(z => `
+            <div class="download-card" style="margin-bottom: 0.65rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span style="font-size: 1.6rem;">📦</span>
+                <div>
+                  <h4 style="color: white; font-size: 0.95rem; font-weight: 700;">${escapeHtml(z.filename)}</h4>
+                  <span style="font-size: 0.78rem; color: #34d399;">${z.count || 'All'} Quizzes • ${z.size_mb} MB • 100% Quizzy Compatible</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <a href="/static/quiz_player.html?zip_url=${encodeURIComponent('/api/studyaura/download?file=' + z.filename)}&name=${encodeURIComponent(z.filename)}" target="_blank" class="btn btn-primary" style="padding: 0.55rem 0.95rem; font-size: 0.84rem; text-decoration: none; background: linear-gradient(135deg, #10b981, #059669);">
+                  ▶ Open in Quizzy Player
+                </a>
+                <a href="/api/studyaura/download?file=${encodeURIComponent(z.filename)}" class="btn btn-secondary" style="padding: 0.55rem 0.95rem; font-size: 0.84rem; text-decoration: none;">
+                  📥 Download ZIP
+                </a>
+              </div>
+            </div>
+          `).join('');
+        }
+        resultsCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    async function loadStudyAuraFilesHistory() {
+      try {
+        const res = await fetch('/api/studyaura/files');
+        const data = await res.json();
+        const container = document.getElementById('sa-history-list');
+        if (!container) return;
+
+        if (data.files && data.files.length > 0) {
+          container.innerHTML = data.files.slice(0, 10).map(f => `
+            <div class="download-card" style="padding: 0.65rem 0.85rem; margin-bottom: 0.5rem; background: rgba(15, 23, 42, 0.5);">
+              <div>
+                <span style="font-size: 0.85rem; color: white; font-weight: 600;">
+                  📦 ${escapeHtml(f.display_name)}
+                </span>
+                <div style="font-size: 0.72rem; color: var(--text-muted);">${f.size_mb} MB</div>
+              </div>
+              <div style="display: flex; gap: 0.35rem;">
+                <a href="/static/quiz_player.html?zip_url=${encodeURIComponent('/api/studyaura/download?file=' + f.filename)}&name=${encodeURIComponent(f.display_name)}" target="_blank" class="btn btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; text-decoration: none; background: linear-gradient(135deg, #10b981, #059669);">
+                  ▶ Quiz
+                </a>
+                <a href="/api/studyaura/download?file=${encodeURIComponent(f.filename)}" class="btn btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; text-decoration: none;">
+                  Download
+                </a>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          container.innerHTML = '<p style="font-size: 0.82rem; color: var(--text-muted);">No previous outputs found yet.</p>';
+        }
+      } catch (err) {
+        console.error('Error loading StudyAura history:', err);
       }
     }
 

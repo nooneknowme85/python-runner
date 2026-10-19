@@ -1,16 +1,20 @@
-# Extraction Runner Studio (Quizard, Ray Book & Allen Cropper)
+# Extraction Runner Studio (Quizard, StudyAura, Ray Book & Allen Cropper)
 
 A lightweight extraction and document processing suite featuring:
 
 1. **Quizard Extractor**: Playwright-based test discovery, question extraction, answer key parsing, and syllabus formatting for Quizzy.
-2. **Ray Book Batch Extractor**: Downloads encrypted books from Streamfiles, reverses XOR ciphers, and removes semi-transparent watermarks using template-based nanmedian synthesis.
-3. **Allen Question Cropper**: Processes Allen NEET/JEE PDF modules, auto-detects topics and exercise sections (Conceptual, PYQ, Analytical, and Answer Keys), and slices question images without question numbers. Delivers topic-wise ZIP archives and/or Cloudinary uploads with formatted Quiz JSON.
+2. **StudyAura Extractor**: Discovers PW PenPencil batches, subjects, chapters, chapterwise DPPs, and full sectional Test Series from StudyAura. Extracts questions, answer keys, solutions, diagrams, and video solutions into 100% Quizzy-compatible JSON (Test Cafe & Question Cafe).
+3. **Ray Book Batch Extractor**: Downloads encrypted books from Streamfiles, reverses XOR ciphers, and removes semi-transparent watermarks using template-based nanmedian synthesis.
+4. **Allen Question Cropper**: Processes Allen NEET/JEE PDF modules, auto-detects topics and exercise sections (Conceptual, PYQ, Analytical, and Answer Keys), and slices question images without question numbers. Delivers topic-wise ZIP archives and/or Cloudinary uploads with formatted Quiz JSON.
 
 ---
 
 ## ⚡ Features
 
-- **Triple-Engine Web Interface**: Seamless tab switching between **Quizard Extractor**, **Ray Book Extractor**, and **Allen Cropper**.
+- **Four-Engine Web Interface**: Seamless tab switching between **Quizard Extractor**, **StudyAura Extractor**, **Ray Book Extractor**, and **Allen Cropper**.
+- **Works Out-Of-The-Box for Forks**: StudyAura requires zero authentication tokens or private API keys — anyone forking the repository can run it immediately locally or via GitHub Actions.
+- **100% Quizzy Compatibility**: StudyAura exports strictly match the Quizzy 2026 schema, compatible with both **Test Cafe** (`test-engine.js`) and **Question Cafe** (`quiz-screens.js`, `quiz_player.html`).
+- **Selective Extraction Scope**: Choose to extract **All Quizzes**, **Chapter DPPs Only**, or **Test Series Only**, with granular subject multi-selection.
 - **Mobile-First & Touch-Friendly**: Fully responsive layout designed for mobile phones (Android, iPhone) and desktop browsers with large tap targets and native file pickers.
 - **Dual PDF Input Modes**:
   - **Upload PDF File**: Direct drag-and-drop or device file selection.
@@ -66,6 +70,11 @@ A lightweight extraction and document processing suite featuring:
 - **Allen Cropper**:
   ```bash
   python ../no_qn_code_copper.py "path/to/module.pdf" "output_folder" "prefix"
+  ```
+
+- **StudyAura Extractor**:
+  ```bash
+  python studyaura_extractor.py
   ```
 
 - **Quizard Extractor**:
