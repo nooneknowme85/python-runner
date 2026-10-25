@@ -28,9 +28,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 # =============================================================================
@@ -383,6 +383,112 @@ def build_graphql_query(course_num: str, subject_num: str, chapter_num: str, tes
     return query
 
 
+# =============================================================================
+# In-Browser Playwright Session (CloudFront WAF & Datacenter IP Bypass)
+# =============================================================================
+
+class PlaywrightNeetprepSession:
+    """Persistent headless Chromium session to bypass CloudFront WAF on datacenter/cloud IPs."""
+    def __init__(self, log_fn: Optional[Callable[[str], None]] = None):
+        self.log_fn = log_fn or print
+        self._pw = None
+        self._browser = None
+        self._page = None
+        self.is_active = False
+
+    def start(self) -> bool:
+        if self.is_active and self._page:
+            return True
+        try:
+            from playwright.sync_api import sync_playwright
+            self.log_fn("🌐 Launching Chromium browser session for CloudFront bypass...")
+            self._pw = sync_playwright().start()
+            self._browser = self._pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
+                ]
+            )
+            ctx = self._browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            self._page = ctx.new_page()
+            try:
+                from playwright_stealth import Stealth
+                Stealth().use_sync(self._page)
+            except Exception:
+                pass
+
+            self.log_fn("⏳ Initializing NEETprep browser session...")
+            self._page.goto("https://www.neetprep.com/", wait_until="domcontentloaded", timeout=25000)
+            self.is_active = True
+            self.log_fn("✅ In-browser engine ready. CloudFront bypassed.")
+            return True
+        except Exception as e:
+            self.log_fn(f"⚠️ Playwright initialization error: {e}")
+            self.close()
+            return False
+
+    def fetch_graphql(self, query: str, offset: int) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        if not self.is_active:
+            if not self.start():
+                return None, "Failed to start in-browser engine (Playwright not available)"
+        try:
+            res = self._page.evaluate("""
+                async ({ query, offset }) => {
+                    try {
+                        const res = await fetch("https://www.neetprep.com/graphql/QuestionsRoute", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Accept": "*/*"
+                            },
+                            body: JSON.stringify({
+                                query: query.replace('$OFFSET', offset),
+                                variables: {}
+                            })
+                        });
+                        const text = await res.text();
+                        if (!res.ok) {
+                            return { ok: false, status: res.status, error: text.slice(0, 150) };
+                        }
+                        try {
+                            const data = JSON.parse(text);
+                            return { ok: true, data: data };
+                        } catch (e) {
+                            return { ok: false, status: 200, error: "Invalid JSON response: " + text.slice(0, 100) };
+                        }
+                    } catch (netErr) {
+                        return { ok: false, status: 0, error: netErr.message || String(netErr) };
+                    }
+                }
+            """, {"query": query, "offset": offset})
+
+            if not res.get("ok"):
+                return None, f"HTTP Error {res.get('status')}: {res.get('error')}"
+            return res.get("data"), None
+        except Exception as ex:
+            return None, f"Playwright evaluate error: {ex}"
+
+    def close(self):
+        try:
+            if self._page:
+                self._page.close()
+            if self._browser:
+                self._browser.close()
+            if self._pw:
+                self._pw.stop()
+        except Exception:
+            pass
+        self._page = None
+        self._browser = None
+        self._pw = None
+        self.is_active = False
+
+
 def fetch_chapter_questions(
     subject_num: str,
     chapter_num: str,
@@ -390,9 +496,10 @@ def fetch_chapter_questions(
     test_id: Optional[str],
     referer_url: Optional[str] = None,
     log_fn: Optional[Callable[[str], None]] = None,
-    cancel_check: Optional[Callable[[], bool]] = None
+    cancel_check: Optional[Callable[[], bool]] = None,
+    browser_session: Optional[PlaywrightNeetprepSession] = None
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """Fetches all questions for a chapter via NEETprep GraphQL with offset pagination."""
+    """Fetches all questions for a chapter via NEETprep GraphQL with offset pagination and auto-CloudFront bypass."""
     def _log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -417,32 +524,60 @@ def fetch_chapter_questions(
             return all_questions, "Extraction cancelled by user."
 
         current_query = base_query.replace('$OFFSET', str(offset))
-        payload = json.dumps({"query": current_query, "variables": {}}).encode("utf-8")
-        req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
+        data = None
 
-        try:
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+        # 1. If in-browser session is already active, use it directly (0 wasted network attempts)
+        if browser_session and browser_session.is_active:
+            data, err = browser_session.fetch_graphql(base_query, offset)
+            if err:
+                return all_questions, err
+        else:
+            # 2. Try fast direct HTTP first
+            payload = json.dumps({"query": current_query, "variables": {}}).encode("utf-8")
+            req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
 
-            root_data = data.get("data", {}).get("root", {}).get("fetchedData")
-            if not root_data:
-                err_msg = data.get("errors", [{}])[0].get("message", "No fetchedData in GraphQL response")
-                return all_questions, f"GraphQL Error: {err_msg}"
+            try:
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as ex:
+                err_body = ex.read().decode("utf-8", errors="replace")[:120]
+                # If CloudFront WAF 403 / 503 is detected on datacenter IP:
+                if ex.code in (403, 503) or "DOCTYPE" in err_body or "CloudFront" in err_body:
+                    if browser_session:
+                        _log("   🛡️ CloudFront WAF 403 detected on datacenter IP. Switching to Playwright in-browser engine...")
+                        data, err = browser_session.fetch_graphql(base_query, offset)
+                        if err:
+                            return all_questions, err
+                    else:
+                        return all_questions, f"HTTP Error {ex.code}: {err_body}"
+                else:
+                    return all_questions, f"HTTP Error {ex.code}: {err_body}"
+            except Exception as ex:
+                if browser_session:
+                    _log(f"   ⚠️ Direct HTTP error ({ex}). Retrying via Playwright in-browser engine...")
+                    data, err = browser_session.fetch_graphql(base_query, offset)
+                    if err:
+                        return all_questions, err
+                else:
+                    return all_questions, f"Request failed: {ex}"
 
-            total = root_data.get("totalCount", 0)
-            edges = root_data.get("edges", [])
-            for e in edges:
-                if "node" in e and isinstance(e["node"], dict):
-                    all_questions.append(e["node"])
+        if not data:
+            return all_questions, "Empty response received from GraphQL query"
 
-            _log(f"   📥 Progress: {len(all_questions)} / {total} questions fetched (offset {offset})")
-            offset += 50
-            time.sleep(0.35)
-        except urllib.error.HTTPError as ex:
-            err_body = ex.read().decode("utf-8", errors="replace")[:120]
-            return all_questions, f"HTTP Error {ex.code}: {err_body}"
-        except Exception as ex:
-            return all_questions, f"Request failed: {ex}"
+        root_data = data.get("data", {}).get("root", {}).get("fetchedData")
+        if not root_data:
+            err_msg = data.get("errors", [{}])[0].get("message", "No fetchedData in GraphQL response")
+            return all_questions, f"GraphQL Error: {err_msg}"
+
+        total = root_data.get("totalCount", 0)
+        edges = root_data.get("edges", [])
+        for e in edges:
+            if "node" in e and isinstance(e["node"], dict):
+                all_questions.append(e["node"])
+
+        _log(f"   📥 Progress: {len(all_questions)} / {total} questions fetched (offset {offset})")
+        offset += 50
+        time.sleep(0.35)
 
     return all_questions, None
 
@@ -599,6 +734,7 @@ class NeetprepJob:
         self.summary: Optional[ExtractionSummary] = None
         self.output_zip_path: Optional[Path] = None
         self.cache_file = output_dir / "neetprep_cache.json"
+        self.browser_session: Optional[PlaywrightNeetprepSession] = PlaywrightNeetprepSession(log_fn=self.log)
 
     def log(self, text: str):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
@@ -610,6 +746,8 @@ class NeetprepJob:
         self._cancel_requested = True
         self.message = "Cancellation requested..."
         self.log("⚠️ Cancellation signal received.")
+        if self.browser_session:
+            self.browser_session.close()
 
     def start(self):
         self.state = "running"
@@ -625,6 +763,13 @@ class NeetprepJob:
             self.log(f"❌ Unhandled Exception: {e}")
 
     def _execute(self):
+        try:
+            self._execute_core()
+        finally:
+            if self.browser_session:
+                self.browser_session.close()
+
+    def _execute_core(self):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         job_work_dir = self.output_dir / f"neetprep_{self.id}"
         job_work_dir.mkdir(parents=True, exist_ok=True)
@@ -697,7 +842,8 @@ class NeetprepJob:
                 test_id=test_id,
                 referer_url=target_url,
                 log_fn=self.log,
-                cancel_check=lambda: self._cancel_requested
+                cancel_check=lambda: self._cancel_requested,
+                browser_session=self.browser_session
             )
 
             time_taken = time.time() - start_t
