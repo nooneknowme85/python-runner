@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
+import html
 import json
 import os
 import re
@@ -68,102 +69,186 @@ SYLLABUS: Dict[str, List[str]] = {
     ]
 }
 
-# Pre-seeded topic IDs for instant 100% reliable lookups on NEETprep
-PRESEEDED_TOPIC_IDS: Dict[str, Dict[str, Dict[str, str]]] = {
+# Chapter Base Mapping (Subject ID and Topic ID only - NO hardcoded tests/courses)
+CHAPTER_BASE_MAP: Dict[str, Dict[str, Dict[str, str]]] = {
     "Physics": {
-        "Units and Measurement": {"subject": "55", "chapter": "675", "course": "287", "test": "5853257"},
-        "Mathematical Tools": {"subject": "55", "chapter": "676", "course": "287", "test": "5853257"},
-        "Motion in A Straight Line": {"subject": "55", "chapter": "677", "course": "287", "test": "5853257"},
-        "Motion in A Plane": {"subject": "55", "chapter": "678", "course": "287", "test": "5853257"},
-        "Laws of Motion": {"subject": "55", "chapter": "679", "course": "287", "test": "5853257"},
-        "Work, Energy and Power": {"subject": "55", "chapter": "680", "course": "287", "test": "5853257"},
-        "Systems of Particles and Rotational Motion": {"subject": "55", "chapter": "681", "course": "287", "test": "5853257"},
-        "Gravitation": {"subject": "55", "chapter": "682", "course": "287", "test": "5853257"},
-        "Mechanical Properties of Solids": {"subject": "55", "chapter": "684", "course": "287", "test": "5853257"},
-        "Mechanical Properties of Fluids": {"subject": "55", "chapter": "685", "course": "287", "test": "5853257"},
-        "Thermal Properties of Matter": {"subject": "55", "chapter": "686", "course": "287", "test": "5853257"},
-        "Thermodynamics": {"subject": "55", "chapter": "687", "course": "287", "test": "5853257"},
-        "Kinetic Theory of Gases": {"subject": "55", "chapter": "688", "course": "287", "test": "5853257"},
-        "Oscillations": {"subject": "55", "chapter": "689", "course": "287", "test": "5853257"},
-        "Waves": {"subject": "55", "chapter": "690", "course": "287", "test": "5853257"},
-        "Electric Charges and Fields": {"subject": "55", "chapter": "691", "course": "287", "test": "5853257"},
-        "Electrostatic Potential and Capacitance": {"subject": "55", "chapter": "692", "course": "287", "test": "5853257"},
-        "Current Electricity": {"subject": "55", "chapter": "693", "course": "287", "test": "5853257"},
-        "Moving Charges and Magnetism": {"subject": "55", "chapter": "694", "course": "287", "test": "5853257"},
-        "Magnetism and Matter": {"subject": "55", "chapter": "695", "course": "287", "test": "5853257"},
-        "Electromagnetic Induction": {"subject": "55", "chapter": "696", "course": "287", "test": "5853257"},
-        "Alternating Current": {"subject": "55", "chapter": "697", "course": "287", "test": "5853257"},
-        "Electromagnetic Waves": {"subject": "55", "chapter": "698", "course": "287", "test": "5853257"},
-        "Ray Optics and Optical Instruments": {"subject": "55", "chapter": "699", "course": "287", "test": "5853257"},
-        "Wave Optics": {"subject": "55", "chapter": "700", "course": "287", "test": "5853257"},
-        "Dual Nature of Radiation and Matter": {"subject": "55", "chapter": "701", "course": "287", "test": "5853257"},
-        "Atoms": {"subject": "55", "chapter": "702", "course": "287", "test": "5853257"},
-        "Nuclei": {"subject": "55", "chapter": "703", "course": "287", "test": "5853257"},
-        "Semiconductor Electronics": {"subject": "55", "chapter": "704", "course": "287", "test": "5853257"},
+        "Units and Measurement": {"subject": "55", "chapter": "675"},
+        "Mathematical Tools": {"subject": "55", "chapter": "676"},
+        "Motion in A Straight Line": {"subject": "55", "chapter": "677"},
+        "Motion in A Plane": {"subject": "55", "chapter": "678"},
+        "Laws of Motion": {"subject": "55", "chapter": "679"},
+        "Work, Energy and Power": {"subject": "55", "chapter": "680"},
+        "Systems of Particles and Rotational Motion": {"subject": "55", "chapter": "681"},
+        "Gravitation": {"subject": "55", "chapter": "682"},
+        "Mechanical Properties of Solids": {"subject": "55", "chapter": "684"},
+        "Mechanical Properties of Fluids": {"subject": "55", "chapter": "685"},
+        "Thermal Properties of Matter": {"subject": "55", "chapter": "686"},
+        "Thermodynamics": {"subject": "55", "chapter": "687"},
+        "Kinetic Theory of Gases": {"subject": "55", "chapter": "688"},
+        "Oscillations": {"subject": "55", "chapter": "689"},
+        "Waves": {"subject": "55", "chapter": "690"},
+        "Electric Charges and Fields": {"subject": "55", "chapter": "691"},
+        "Electrostatic Potential and Capacitance": {"subject": "55", "chapter": "692"},
+        "Current Electricity": {"subject": "55", "chapter": "693"},
+        "Moving Charges and Magnetism": {"subject": "55", "chapter": "694"},
+        "Magnetism and Matter": {"subject": "55", "chapter": "695"},
+        "Electromagnetic Induction": {"subject": "55", "chapter": "696"},
+        "Alternating Current": {"subject": "55", "chapter": "697"},
+        "Electromagnetic Waves": {"subject": "55", "chapter": "698"},
+        "Ray Optics and Optical Instruments": {"subject": "55", "chapter": "699"},
+        "Wave Optics": {"subject": "55", "chapter": "700"},
+        "Dual Nature of Radiation and Matter": {"subject": "55", "chapter": "701"},
+        "Atoms": {"subject": "55", "chapter": "702"},
+        "Nuclei": {"subject": "55", "chapter": "703"},
+        "Semiconductor Electronics": {"subject": "55", "chapter": "704"},
     },
     "Chemistry": {
-        "Some Basic Concepts Of Chemistry": {"subject": "53", "chapter": "645", "course": "287", "test": "5853257"},
-        "Structure of Atom": {"subject": "53", "chapter": "646", "course": "287", "test": "5853257"},
-        "Classification of Elements and Periodicity in Properties": {"subject": "53", "chapter": "647", "course": "287", "test": "5853257"},
-        "Chemical Bonding and Molecular Structure": {"subject": "53", "chapter": "648", "course": "287", "test": "5853257"},
-        "Thermodynamics": {"subject": "53", "chapter": "650", "course": "287", "test": "5853257"},
-        "Equilibrium": {"subject": "53", "chapter": "651", "course": "287", "test": "5853257"},
-        "Redox Reactions": {"subject": "53", "chapter": "652", "course": "287", "test": "5853257"},
-        "The p-Block Elements (XI)": {"subject": "53", "chapter": "653", "course": "287", "test": "5853257"},
-        "Organic Chemistry - Some Basic Principles And Techniques": {"subject": "53", "chapter": "654", "course": "287", "test": "5853257"},
-        "Hydrocarbons": {"subject": "53", "chapter": "655", "course": "287", "test": "5853257"},
-        "Solutions": {"subject": "53", "chapter": "656", "course": "287", "test": "5853257"},
-        "Electrochemistry": {"subject": "53", "chapter": "657", "course": "287", "test": "5853257"},
-        "Chemical Kinetics": {"subject": "53", "chapter": "658", "course": "287", "test": "5853257"},
-        "The p-Block Elements (XII)": {"subject": "53", "chapter": "659", "course": "287", "test": "5853257"},
-        "The d and f Block Elements": {"subject": "53", "chapter": "660", "course": "287", "test": "5853257"},
-        "Coordination Compounds": {"subject": "53", "chapter": "661", "course": "287", "test": "5853257"},
-        "Haloalkanes and Haloarenes": {"subject": "53", "chapter": "662", "course": "287", "test": "5853257"},
-        "Alcohols, Phenols and Ethers": {"subject": "53", "chapter": "663", "course": "287", "test": "5853257"},
-        "Aldehydes, Ketones and Carboxylic Acids": {"subject": "53", "chapter": "664", "course": "287", "test": "5853257"},
-        "Amines": {"subject": "53", "chapter": "665", "course": "287", "test": "5853257"},
-        "Biomolecules": {"subject": "53", "chapter": "666", "course": "287", "test": "5853257"},
-        "Reaction Mechanism - Organic Chemistry": {"subject": "53", "chapter": "667", "course": "287", "test": "5853257"},
-        "Differentiations & Conversions - Organic Chemistry": {"subject": "53", "chapter": "668", "course": "287", "test": "5853257"},
-        "Salt Analysis": {"subject": "53", "chapter": "669", "course": "287", "test": "5853257"},
+        "Some Basic Concepts Of Chemistry": {"subject": "4416", "chapter": "7947"},
+        "Structure of Atom": {"subject": "4416", "chapter": "7923"},
+        "Classification of Elements and Periodicity in Properties": {"subject": "4416", "chapter": "7927"},
+        "Chemical Bonding and Molecular Structure": {"subject": "4416", "chapter": "7922"},
+        "Thermodynamics": {"subject": "4416", "chapter": "7938"},
+        "Equilibrium": {"subject": "4416", "chapter": "7944"},
+        "Redox Reactions": {"subject": "4416", "chapter": "7945"},
+        "The p-Block Elements (XI)": {"subject": "4416", "chapter": "7929"},
+        "Organic Chemistry - Some Basic Principles And Techniques": {"subject": "4416", "chapter": "7933"},
+        "Hydrocarbons": {"subject": "4416", "chapter": "7935"},
+        "Solutions": {"subject": "4416", "chapter": "7946"},
+        "Electrochemistry": {"subject": "4416", "chapter": "7949"},
+        "Chemical Kinetics": {"subject": "4416", "chapter": "7925"},
+        "The p-Block Elements (XII)": {"subject": "4416", "chapter": "7936"},
+        "The d and f Block Elements": {"subject": "4416", "chapter": "7940"},
+        "Coordination Compounds": {"subject": "4416", "chapter": "7943"},
+        "Haloalkanes and Haloarenes": {"subject": "4416", "chapter": "7951"},
+        "Alcohols, Phenols and Ethers": {"subject": "4416", "chapter": "7950"},
+        "Aldehydes, Ketones and Carboxylic Acids": {"subject": "4416", "chapter": "7926"},
+        "Amines": {"subject": "4416", "chapter": "7930"},
+        "Biomolecules": {"subject": "4416", "chapter": "7932"},
+        "Reaction Mechanism - Organic Chemistry": {"subject": "4416", "chapter": "7921"},
+        "Differentiations & Conversions - Organic Chemistry": {"subject": "4416", "chapter": "7952"},
+        "Salt Analysis": {"subject": "4416", "chapter": "11641"},
     },
     "Botany": {
-        "The Living World": {"subject": "51", "chapter": "622", "course": "287", "test": "5853257"},
-        "Biological Classification": {"subject": "51", "chapter": "623", "course": "287", "test": "5853257"},
-        "Plant Kingdom": {"subject": "51", "chapter": "624", "course": "287", "test": "5853257"},
-        "Morphology of Flowering Plants": {"subject": "51", "chapter": "625", "course": "287", "test": "5853257"},
-        "Anatomy of Flowering Plants": {"subject": "51", "chapter": "626", "course": "287", "test": "5853257"},
-        "Cell - The Unit of Life": {"subject": "51", "chapter": "627", "course": "287", "test": "5853257"},
-        "Cell Cycle and Cell Division": {"subject": "51", "chapter": "629", "course": "287", "test": "5853257"},
-        "Photosynthesis in Higher Plants": {"subject": "51", "chapter": "632", "course": "287", "test": "5853257"},
-        "Respiration in Plants": {"subject": "51", "chapter": "633", "course": "287", "test": "5853257"},
-        "Plant Growth and Development": {"subject": "51", "chapter": "634", "course": "287", "test": "5853257"},
-        "Sexual Reproduction in Flowering Plants": {"subject": "51", "chapter": "635", "course": "287", "test": "5853257"},
-        "Principles of Inheritance & Variation": {"subject": "51", "chapter": "636", "course": "287", "test": "5853257"},
-        "Molecular Basis of Inheritance": {"subject": "51", "chapter": "637", "course": "287", "test": "5853257"},
-        "Microbes in Human Welfare": {"subject": "51", "chapter": "720", "course": "287", "test": "5853257"},
-        "Organisms and Populations": {"subject": "51", "chapter": "641", "course": "287", "test": "5853257"},
-        "Ecosystem": {"subject": "51", "chapter": "642", "course": "287", "test": "5853257"},
-        "Biodiversity and Conservation": {"subject": "51", "chapter": "643", "course": "287", "test": "5853257"},
+        "The Living World": {"subject": "51", "chapter": "622"},
+        "Biological Classification": {"subject": "51", "chapter": "623"},
+        "Plant Kingdom": {"subject": "51", "chapter": "624"},
+        "Morphology of Flowering Plants": {"subject": "51", "chapter": "625"},
+        "Anatomy of Flowering Plants": {"subject": "51", "chapter": "626"},
+        "Cell - The Unit of Life": {"subject": "51", "chapter": "627"},
+        "Cell Cycle and Cell Division": {"subject": "51", "chapter": "629"},
+        "Photosynthesis in Higher Plants": {"subject": "51", "chapter": "632"},
+        "Respiration in Plants": {"subject": "51", "chapter": "633"},
+        "Plant Growth and Development": {"subject": "51", "chapter": "634"},
+        "Sexual Reproduction in Flowering Plants": {"subject": "51", "chapter": "635"},
+        "Principles of Inheritance & Variation": {"subject": "51", "chapter": "636"},
+        "Molecular Basis of Inheritance": {"subject": "51", "chapter": "637"},
+        "Microbes in Human Welfare": {"subject": "51", "chapter": "720"},
+        "Organisms and Populations": {"subject": "51", "chapter": "641"},
+        "Ecosystem": {"subject": "51", "chapter": "642"},
+        "Biodiversity and Conservation": {"subject": "51", "chapter": "643"},
     },
     "Zoology": {
-        "Animal Kingdom": {"subject": "52", "chapter": "706", "course": "287", "test": "5853257"},
-        "Structural Organisation in Animals": {"subject": "52", "chapter": "707", "course": "287", "test": "5853257"},
-        "Biomolecules": {"subject": "52", "chapter": "628", "course": "287", "test": "5853257"},
-        "Breathing and Exchange of Gases": {"subject": "52", "chapter": "709", "course": "287", "test": "5853257"},
-        "Body Fluids and Circulation": {"subject": "52", "chapter": "710", "course": "287", "test": "5853257"},
-        "Excretory Products and their Elimination": {"subject": "52", "chapter": "711", "course": "287", "test": "5853257"},
-        "Locomotion and Movement": {"subject": "52", "chapter": "712", "course": "287", "test": "5853257"},
-        "Neural Control and Coordination": {"subject": "52", "chapter": "713", "course": "287", "test": "5853257"},
-        "Chemical Coordination and Integration": {"subject": "52", "chapter": "714", "course": "287", "test": "5853257"},
-        "Human Reproduction": {"subject": "52", "chapter": "715", "course": "287", "test": "5853257"},
-        "Reproductive Health": {"subject": "52", "chapter": "716", "course": "287", "test": "5853257"},
-        "Evolution": {"subject": "52", "chapter": "717", "course": "287", "test": "5853257"},
-        "Human Health and Disease": {"subject": "52", "chapter": "718", "course": "287", "test": "5853257"},
-        "Biotechnology: Principles and Processes": {"subject": "52", "chapter": "719", "course": "287", "test": "5853257"},
-        "Biotechnology and its Applications": {"subject": "52", "chapter": "721", "course": "287", "test": "5853257"},
+        "Animal Kingdom": {"subject": "52", "chapter": "706"},
+        "Structural Organisation in Animals": {"subject": "52", "chapter": "707"},
+        "Biomolecules": {"subject": "52", "chapter": "628"},
+        "Breathing and Exchange of Gases": {"subject": "52", "chapter": "709"},
+        "Body Fluids and Circulation": {"subject": "52", "chapter": "710"},
+        "Excretory Products and their Elimination": {"subject": "52", "chapter": "711"},
+        "Locomotion and Movement": {"subject": "52", "chapter": "712"},
+        "Neural Control and Coordination": {"subject": "52", "chapter": "713"},
+        "Chemical Coordination and Integration": {"subject": "52", "chapter": "714"},
+        "Human Reproduction": {"subject": "52", "chapter": "715"},
+        "Reproductive Health": {"subject": "52", "chapter": "716"},
+        "Evolution": {"subject": "52", "chapter": "717"},
+        "Human Health and Disease": {"subject": "52", "chapter": "718"},
+        "Biotechnology: Principles and Processes": {"subject": "52", "chapter": "719"},
+        "Biotechnology and its Applications": {"subject": "52", "chapter": "721"},
     }
 }
+
+
+def fetch_chapter_bank_links_http(base_url: str) -> List[Tuple[str, str]]:
+    """Fetches HTML of a chapter page directly via HTTP and extracts all available question bank links."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    req = urllib.request.Request(base_url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            page_html = resp.read().decode('utf-8', errors='replace')
+    except Exception:
+        return []
+    
+    matches = re.findall(r'<a[^>]+href="([^"]+testId=[^"]+)"[^>]*>(.*?)</a>', page_html, re.DOTALL)
+    results: List[Tuple[str, str]] = []
+    for href, text in matches:
+        clean_text = re.sub(r'<[^>]+>', '', text).strip()
+        clean_text = html.unescape(clean_text)
+        clean_href = html.unescape(href)
+        if clean_href.startswith('/'):
+            clean_href = "https://www.neetprep.com" + clean_href
+        if clean_text and clean_href:
+            results.append((clean_text, clean_href))
+    return results
+
+
+def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str) -> Tuple[Optional[str], Optional[str]]:
+    """Matches user prefix (e.g. 'Padma Shri H C Verma...', 'jee mains...', 'NCERT Exemplar...') against the question banks found on a chapter page."""
+    clean_prefix = re.sub(r'[\(\)\[\]\/\-\:]', ' ', user_prefix.lower())
+    noise = {'neetprep', 'mcqs', 'mcq', 'based', 'questions', 'question', 'bank', 'site', 'https', 'com'}
+    prefix_tokens = [w for w in clean_prefix.split() if w not in noise]
+
+    best_link: Optional[str] = None
+    best_score = -1
+    best_text: Optional[str] = None
+
+    for link_text, link_url in available_links:
+        clean_text = re.sub(r'[\(\)\[\]\/\-\:]', ' ', link_text.lower())
+        text_tokens = [w for w in clean_text.split() if w not in noise]
+
+        score = 0
+        for pt in prefix_tokens:
+            if pt in text_tokens:
+                score += 2
+            elif any(pt in tt for tt in text_tokens):
+                score += 1
+
+        # Specific high-confidence boosts
+        if 'verma' in prefix_tokens and 'verma' in text_tokens:
+            score += 10
+        if 'hcv' in prefix_tokens and ('verma' in text_tokens or 'h' in text_tokens):
+            score += 10
+        if 'jee' in prefix_tokens and 'jee' in text_tokens:
+            score += 10
+        if 'mains' in prefix_tokens and 'mains' in text_tokens:
+            score += 5
+        if 'exemplar' in prefix_tokens and 'exemplar' in text_tokens:
+            score += 10
+        if 'exercise' in prefix_tokens and 'exercise' in text_tokens:
+            score += 8
+        if 'solved' in prefix_tokens and 'solved' in text_tokens:
+            score += 8
+        if 'past' in prefix_tokens and 'past' in text_tokens:
+            score += 5
+        if 'pyq' in prefix_tokens and ('pyq' in text_tokens or 'past' in text_tokens):
+            score += 5
+        if 'absorb' in prefix_tokens and 'absorb' in text_tokens:
+            score += 10
+
+        if score > best_score:
+            best_score = score
+            best_link = link_url
+            best_text = link_text
+
+    min_required = 4
+    if any(k in prefix_tokens for k in ['verma', 'hcv', 'jee', 'exemplar']):
+        min_required = 8
+
+    if best_score >= min_required and best_link:
+        return best_link, best_text
+    return None, None
+
 
 
 # =============================================================================
@@ -282,9 +367,16 @@ def resolve_chapter_url(
     chapter: str,
     prefix: str,
     cache: PersistentCache,
-    log_fn: Optional[Callable[[str], None]] = None
+    log_fn: Optional[Callable[[str], None]] = None,
+    browser_session: Optional[Any] = None
 ) -> Tuple[Optional[str], str]:
-    """Resolves NEETprep chapter URL using preseeded database, cache, or DuckDuckGo."""
+    """
+    Dynamically resolves the target question bank URL for (subject, chapter, prefix).
+    1. Checks persistent cache for exact (subject, chapter, prefix) match.
+    2. If in CHAPTER_BASE_MAP: builds the chapter base URL, inspects all question banks on the page
+       via HTTP (or in-browser), and matches the bank corresponding to user's prefix.
+    3. If unlisted: searches DuckDuckGo for '{prefix} {clean_chapter}'.
+    """
     def _log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -295,17 +387,36 @@ def resolve_chapter_url(
         _log(f"⚡ [Cache Hit] Found saved link for: {chapter}")
         return cached_url, "cache"
 
-    # 2. Check preseeded database for standard NEETprep subjects
-    if subject in PRESEEDED_TOPIC_IDS and chapter in PRESEEDED_TOPIC_IDS[subject]:
-        mapping = PRESEEDED_TOPIC_IDS[subject][chapter]
+    # 2. Check CHAPTER_BASE_MAP for known subject & chapter
+    if subject in CHAPTER_BASE_MAP and chapter in CHAPTER_BASE_MAP[subject]:
+        mapping = CHAPTER_BASE_MAP[subject][chapter]
         safe_ch = re.sub(r'[^a-zA-Z0-9]', '-', chapter).strip('-')
-        constructed_url = f"https://www.neetprep.com/questions/{mapping['subject']}-{subject}/{mapping['chapter']}-{safe_ch}?courseId={mapping['course']}&testId={mapping['test']}"
-        cache.set(subject, chapter, prefix, constructed_url)
-        _log(f"⚡ [Preseeded Database] Matched {subject} - {chapter} -> Topic ID {mapping['chapter']}")
-        return constructed_url, "database"
+        base_url = f"https://www.neetprep.com/questions/{mapping['subject']}-{subject}/{mapping['chapter']}-{safe_ch}"
 
-    # 3. Dynamic search as requested by user:
-    # Format: {prefix} {clean_chapter}
+        _log(f"🔎 [Resolving Bank] {subject} - {chapter} -> Looking for question bank matching: '{prefix}'")
+
+        # 2a. Fast direct HTTP inspect
+        http_links = fetch_chapter_bank_links_http(base_url)
+        if http_links:
+            matched_url, matched_title = find_best_test_link(http_links, prefix)
+            if matched_url:
+                cache.set(subject, chapter, prefix, matched_url)
+                _log(f"🎯 [Matched Bank] '{matched_title}'")
+                return matched_url, f"bank_http: {matched_title}"
+
+        # 2b. In-browser inspect via Chromium session if HTTP didn't match
+        if browser_session:
+            _log(f"🌐 Inspecting chapter page in Chromium browser...")
+            matched_url, matched_title = browser_session.resolve_bank_link(base_url, prefix)
+            if matched_url:
+                cache.set(subject, chapter, prefix, matched_url)
+                _log(f"🎯 [In-Browser Matched Bank] '{matched_title}'")
+                return matched_url, f"bank_browser: {matched_title}"
+
+        _log(f"⚠️ Chapter '{chapter}' has no question bank matching prefix '{prefix}'.")
+        return None, "no_matching_bank"
+
+    # 3. Dynamic search as requested by user for custom or unlisted chapters:
     clean_ch = re.sub(r'[,.\-_]', ' ', chapter).strip()
     clean_ch = re.sub(r'\s+', ' ', clean_ch).lower()
     
@@ -324,6 +435,7 @@ def resolve_chapter_url(
         return target_url, "duckduckgo_http"
 
     return None, "not_found"
+
 
 
 # =============================================================================
@@ -432,15 +544,42 @@ class PlaywrightNeetprepSession:
             self.close()
             return False
 
-    def fetch_graphql(self, query: str, offset: int) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def resolve_bank_link(self, base_url: str, user_prefix: str) -> Tuple[Optional[str], Optional[str]]:
+        """Opens the chapter base URL in Chromium and matches the question bank corresponding to user_prefix."""
+        if not self.is_active:
+            if not self.start():
+                return None, None
+        try:
+            self._page.goto(base_url, wait_until="domcontentloaded", timeout=25000)
+            self._page.wait_for_timeout(1500)
+            links = self._page.evaluate("""
+                () => {
+                    return Array.from(document.querySelectorAll('a'))
+                        .map(a => [a.innerText.trim(), a.href])
+                        .filter(item => item[0].length > 0 && item[1].includes('questions/') && item[1].includes('testId='));
+                }
+            """)
+            return find_best_test_link(links, user_prefix)
+        except Exception as ex:
+            self.log_fn(f"⚠️ In-browser bank resolution warning: {ex}")
+            return None, None
+
+    def fetch_graphql(self, query: str, offset: int, referer_url: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         if not self.is_active:
             if not self.start():
                 return None, "Failed to start in-browser engine (Playwright not available)"
         try:
+            if referer_url and self._page and self._page.url != referer_url:
+                try:
+                    self._page.goto(referer_url, wait_until="domcontentloaded", timeout=25000)
+                    self._page.wait_for_timeout(1000)
+                except Exception as e:
+                    self.log_fn(f"⚠️ Chapter context navigation warning: {e}")
+
             res = self._page.evaluate("""
                 async ({ query, offset }) => {
                     try {
-                        const res = await fetch("https://www.neetprep.com/graphql/QuestionsRoute", {
+                        const res = await fetch("/graphql/QuestionsRoute", {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
@@ -528,7 +667,7 @@ def fetch_chapter_questions(
 
         # 1. If in-browser session is already active, use it directly (0 wasted network attempts)
         if browser_session and browser_session.is_active:
-            data, err = browser_session.fetch_graphql(base_query, offset)
+            data, err = browser_session.fetch_graphql(base_query, offset, referer_url=ref)
             if err:
                 return all_questions, err
         else:
@@ -545,7 +684,7 @@ def fetch_chapter_questions(
                 if ex.code in (403, 503) or "DOCTYPE" in err_body or "CloudFront" in err_body:
                     if browser_session:
                         _log("   🛡️ CloudFront WAF 403 detected on datacenter IP. Switching to Playwright in-browser engine...")
-                        data, err = browser_session.fetch_graphql(base_query, offset)
+                        data, err = browser_session.fetch_graphql(base_query, offset, referer_url=ref)
                         if err:
                             return all_questions, err
                     else:
@@ -555,11 +694,12 @@ def fetch_chapter_questions(
             except Exception as ex:
                 if browser_session:
                     _log(f"   ⚠️ Direct HTTP error ({ex}). Retrying via Playwright in-browser engine...")
-                    data, err = browser_session.fetch_graphql(base_query, offset)
+                    data, err = browser_session.fetch_graphql(base_query, offset, referer_url=ref)
                     if err:
                         return all_questions, err
                 else:
                     return all_questions, f"Request failed: {ex}"
+
 
         if not data:
             return all_questions, "Empty response received from GraphQL query"
@@ -812,13 +952,16 @@ class NeetprepJob:
 
             start_t = time.time()
 
-            # Resolve link via Database / Cache / DuckDuckGo
+            # Resolve link via Database / Cache / DuckDuckGo / Dynamic Question Bank Matcher
             target_url, source = resolve_chapter_url(
-                subject, chapter, self.prefix, cache, log_fn=self.log
+                subject, chapter, self.prefix, cache, log_fn=self.log, browser_session=self.browser_session
             )
 
             if not target_url:
-                err_msg = "No valid NEETprep link found via search"
+                if source == "no_matching_bank":
+                    err_msg = f"No question bank matching prefix '{self.prefix}' exists for this chapter"
+                else:
+                    err_msg = f"No valid NEETprep question bank found for prefix '{self.prefix}'"
                 self.log(f"⚠️ {err_msg}")
                 self.summary.record_failure(subject, chapter, err_msg)
                 self.done += 1
