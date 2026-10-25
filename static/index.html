@@ -2067,28 +2067,85 @@
         </div>
 
         <form id="neetprep-form" onsubmit="event.preventDefault();">
-          <!-- Step 1: Configuration -->
+          <!-- Step 1: Extraction Mode Selector & Filter Settings -->
           <div class="card" style="margin-bottom: 1.25rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
-              <label class="form-label" for="np-prefix-input" style="font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 0;">
-                Target Prefix / Question Bank Filter
-              </label>
-              <span style="font-size: 0.78rem; color: var(--text-muted);">DuckDuckGo Smart Search</span>
+            <label class="form-label" style="font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 0.75rem;">
+              Extraction Mode:
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+              <div id="np-mode-card-all" class="allen-opt-card active" style="cursor: pointer; padding: 0.9rem;" onclick="setNpMode('all_banks')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="radio" name="np_mode" id="np-radio-all" value="all_banks" checked style="accent-color: #10b981; width: 18px; height: 18px;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.94rem;">📚 Bulk: All Chapter Question Banks</div>
+                    <div style="font-size: 0.78rem; color: #a7f3d0;">Downloads all banks into &lt;Subject&gt;/&lt;Chapter&gt;/ folders with Exclude Filter</div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="np-mode-card-single" class="allen-opt-card" style="cursor: pointer; padding: 0.9rem;" onclick="setNpMode('single_prefix')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="radio" name="np_mode" id="np-radio-single" value="single_prefix" style="accent-color: #10b981; width: 18px; height: 18px;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.94rem;">🎯 Single Question Bank Prefix</div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted);">Matches a specific question bank prefix across chapters</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <input type="text" id="np-prefix-input" class="form-input" style="width: 100%; margin-bottom: 0.65rem;" value="jee mains mcq [2014-2026] neetprep" placeholder="e.g. jee mains mcq [2014-2026] neetprep">
+            <!-- Panel for All Banks (Bulk) Mode -->
+            <div id="np-panel-all-banks">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                <label class="form-label" for="np-exclude-input" style="font-size: 0.88rem; font-weight: 700; color: #f59e0b; margin-bottom: 0;">
+                  🚫 Exclude Filter (Comma-separated keywords to skip)
+                </label>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Skips banks you already downloaded</span>
+              </div>
+              <input type="text" id="np-exclude-input" class="form-input" style="width: 100%; margin-bottom: 0.65rem;" value="0.5, absorb, verma, jee" placeholder="e.g. 0.5, absorb, verma, jee">
+              
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-size: 0.76rem; color: var(--text-muted);">Quick Exclude Toggles:</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('0.5')">⚡ 0.5 (Level 0.5)</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('absorb')">🧲 absorb (Absorb Before Solve)</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('verma')">📘 verma (H C Verma)</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('jee')">🎯 jee (JEE-Mains PYQs)</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('mini')">📦 mini (Mini Q Bank)</span>
+                <span class="chip-badge" style="cursor: pointer;" onclick="toggleExcludeToken('exemplar')">🔬 exemplar (NCERT Exemplar)</span>
+              </div>
+              <div style="font-size: 0.78rem; color: #94a3b8; line-height: 1.4;">
+                💡 <em>All other banks on each chapter page (e.g. <strong>Recommended MCQs, Recommended PYQs, NCERT Solved Examples, NCERT Exercises, Past Years NTA</strong>, etc.) will be downloaded into <code>&lt;Subject&gt;/&lt;Chapter&gt;/&lt;Bank_Name&gt;.json</code>.</em>
+              </div>
+            </div>
 
-            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center;">
-              <span style="font-size: 0.76rem; color: var(--text-muted);">Quick Presets:</span>
-              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='jee mains mcq [2014-2026] neetprep';">
-                🎯 JEE Mains MCQ (2014-2026)
-              </span>
-              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='neet pyq neetprep';">
-                🩺 NEET Past Year Questions
-              </span>
-              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='ncert questions neetprep';">
-                📖 NCERT Drill Questions
-              </span>
+            <!-- Panel for Single Prefix Mode -->
+            <div id="np-panel-single-prefix" style="display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                <label class="form-label" for="np-prefix-input" style="font-size: 0.88rem; font-weight: 700; color: var(--text); margin-bottom: 0;">
+                  Target Prefix / Bank Name
+                </label>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Smart Match + DDG Search</span>
+              </div>
+              <input type="text" id="np-prefix-input" class="form-input" style="width: 100%; margin-bottom: 0.65rem;" value="Recommended mcqs neetprep" placeholder="e.g. Recommended mcqs neetprep">
+
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center;">
+                <span style="font-size: 0.76rem; color: var(--text-muted);">Quick Presets:</span>
+                <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='Recommended mcqs neetprep';">
+                  🌟 Recommended MCQs
+                </span>
+                <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='Recommended pyqs neetprep';">
+                  📅 Recommended PYQs
+                </span>
+                <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='jee mains mcq [2014-2026] neetprep';">
+                  🎯 JEE Mains (2014-2026)
+                </span>
+                <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='Padma Shri H C Verma (Objective Exercises) Based MCQs neetprep';">
+                  📘 HC Verma Exercises
+                </span>
+                <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='ncert exemplar neetprep';">
+                  🔬 NCERT Exemplar
+                </span>
+              </div>
             </div>
           </div>
 
@@ -2210,15 +2267,16 @@
 
             <!-- Per File Questions Table -->
             <div style="margin-top: 1rem;">
-              <h4 style="font-size: 0.95rem; color: white; margin-bottom: 0.5rem;">📁 Questions Extracted Per File</h4>
-              <div style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem;">
+              <h4 style="font-size: 0.95rem; color: white; margin-bottom: 0.5rem;">📁 Extracted Question Banks &amp; Directory Paths</h4>
+              <div style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
                   <thead style="background: rgba(15, 23, 42, 0.9); position: sticky; top: 0;">
                     <tr style="border-bottom: 1px solid var(--border); color: #94a3b8;">
                       <th style="padding: 0.6rem 0.85rem;">Subject</th>
                       <th style="padding: 0.6rem 0.85rem;">Chapter</th>
+                      <th style="padding: 0.6rem 0.85rem;">Question Bank</th>
                       <th style="padding: 0.6rem 0.85rem; text-align: center;">Questions</th>
-                      <th style="padding: 0.6rem 0.85rem;">File Name</th>
+                      <th style="padding: 0.6rem 0.85rem;">Path in ZIP</th>
                     </tr>
                   </thead>
                   <tbody id="np-succeeded-tbody"></tbody>
@@ -2226,15 +2284,33 @@
               </div>
             </div>
 
+            <!-- Skipped Banks Box -->
+            <div id="np-skipped-box" style="display: none; margin-top: 1.25rem; background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.4); border-radius: 0.65rem; padding: 1rem;">
+              <h4 style="font-size: 0.95rem; color: #fbbf24; margin-bottom: 0.5rem;">⏭️ Question Banks Skipped (Matched Exclude Filter)</h4>
+              <div style="max-height: 180px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid rgba(245, 158, 11, 0.2); color: #fde68a;">
+                      <th style="padding: 0.4rem 0.65rem;">Subject</th>
+                      <th style="padding: 0.4rem 0.65rem;">Chapter</th>
+                      <th style="padding: 0.4rem 0.65rem;">Skipped Question Bank</th>
+                      <th style="padding: 0.4rem 0.65rem;">Matched Keyword</th>
+                    </tr>
+                  </thead>
+                  <tbody id="np-skipped-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
             <!-- Failed Chapters Box -->
             <div id="np-failed-box" style="display: none; margin-top: 1.25rem; background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.4); border-radius: 0.65rem; padding: 1rem;">
-              <h4 style="font-size: 0.95rem; color: #f87171; margin-bottom: 0.5rem;">⚠️ Chapters That Failed / Had Zero Questions</h4>
+              <h4 style="font-size: 0.95rem; color: #f87171; margin-bottom: 0.5rem;">⚠️ Items That Failed / Had Zero Questions</h4>
               <div style="max-height: 180px; overflow-y: auto;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
                   <thead>
                     <tr style="border-bottom: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5;">
                       <th style="padding: 0.4rem 0.65rem;">Subject</th>
-                      <th style="padding: 0.4rem 0.65rem;">Chapter</th>
+                      <th style="padding: 0.4rem 0.65rem;">Chapter / Bank</th>
                       <th style="padding: 0.4rem 0.65rem;">Failure Reason</th>
                     </tr>
                   </thead>
@@ -4550,6 +4626,39 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     // ==========================================
     let npPollTimer = null;
     let npLogOffset = 0;
+    let currentNpMode = 'all_banks';
+
+    function setNpMode(mode) {
+      currentNpMode = mode;
+      const isAll = mode === 'all_banks';
+      const radAll = document.getElementById('np-radio-all');
+      const radSingle = document.getElementById('np-radio-single');
+      if (radAll) radAll.checked = isAll;
+      if (radSingle) radSingle.checked = !isAll;
+
+      const cardAll = document.getElementById('np-mode-card-all');
+      const cardSingle = document.getElementById('np-mode-card-single');
+      if (cardAll) cardAll.classList.toggle('active', isAll);
+      if (cardSingle) cardSingle.classList.toggle('active', !isAll);
+
+      const panelAll = document.getElementById('np-panel-all-banks');
+      const panelSingle = document.getElementById('np-panel-single-prefix');
+      if (panelAll) panelAll.style.display = isAll ? 'block' : 'none';
+      if (panelSingle) panelSingle.style.display = isAll ? 'none' : 'block';
+    }
+
+    function toggleExcludeToken(token) {
+      const input = document.getElementById('np-exclude-input');
+      if (!input) return;
+      let tokens = input.value.split(',').map(t => t.trim()).filter(Boolean);
+      const idx = tokens.findIndex(t => t.toLowerCase() === token.toLowerCase());
+      if (idx >= 0) {
+        tokens.splice(idx, 1);
+      } else {
+        tokens.push(token);
+      }
+      input.value = tokens.join(', ');
+    }
 
     function toggleNpSubject(name) {
       if (name === 'All') {
@@ -4578,11 +4687,12 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     }
 
     async function startNeetprepJob() {
-      const prefix = document.getElementById('np-prefix-input').value.trim();
-      const chapter = document.getElementById('np-chapter-input').value.trim();
+      const prefix = document.getElementById('np-prefix-input') ? document.getElementById('np-prefix-input').value.trim() : '';
+      const excludeKeywords = document.getElementById('np-exclude-input') ? document.getElementById('np-exclude-input').value.trim() : '0.5, absorb, verma, jee';
+      const chapter = document.getElementById('np-chapter-input') ? document.getElementById('np-chapter-input').value.trim() : '';
 
       const selected = [];
-      if (document.getElementById('np-subj-all').checked) {
+      if (document.getElementById('np-subj-all') && document.getElementById('np-subj-all').checked) {
         selected.push('All');
       } else {
         ['Physics', 'Chemistry', 'Botany', 'Zoology'].forEach(s => {
@@ -4616,7 +4726,9 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            mode: currentNpMode,
             prefix: prefix,
+            exclude_keywords: excludeKeywords,
             subjects: selected,
             chapters: chapter ? [chapter] : []
           })
@@ -4707,41 +4819,73 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
       const card = document.getElementById('np-summary-card');
       const badges = document.getElementById('np-stats-badges');
       const succTbody = document.getElementById('np-succeeded-tbody');
+      const skipBox = document.getElementById('np-skipped-box');
+      const skipTbody = document.getElementById('np-skipped-tbody');
       const failBox = document.getElementById('np-failed-box');
       const failTbody = document.getElementById('np-failed-tbody');
 
       card.style.display = 'block';
+      const succeededCount = summary.total_items_succeeded || summary.total_chapters_succeeded || 0;
+      const skippedCount = summary.total_items_skipped || 0;
+      const failedCount = summary.total_items_failed || summary.total_chapters_failed || 0;
+
       badges.innerHTML = `
         <span class="chip-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">🎯 Total Questions: ${summary.total_questions_extracted}</span>
-        <span class="chip-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">✅ Succeeded: ${summary.total_chapters_succeeded} / ${summary.total_chapters_attempted}</span>
-        <span class="chip-badge" style="background: ${summary.total_chapters_failed > 0 ? 'rgba(239, 68, 68, 0.2); color: #fca5a5;' : 'rgba(100, 116, 139, 0.2); color: #94a3b8;'}">❌ Failed: ${summary.total_chapters_failed}</span>
+        <span class="chip-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">✅ Extracted: ${succeededCount} banks</span>
+        ${skippedCount > 0 ? `<span class="chip-badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24;">⏭️ Skipped: ${skippedCount}</span>` : ''}
+        <span class="chip-badge" style="background: ${failedCount > 0 ? 'rgba(239, 68, 68, 0.2); color: #fca5a5;' : 'rgba(100, 116, 139, 0.2); color: #94a3b8;'}">❌ Failed: ${failedCount}</span>
         <span class="chip-badge">⏱️ Duration: ${summary.duration_seconds}s</span>
       `;
 
       succTbody.innerHTML = '';
-      if (summary.succeeded_chapters && summary.succeeded_chapters.length > 0) {
-        summary.succeeded_chapters.forEach(row => {
+      const items = summary.succeeded_items || summary.succeeded_chapters || [];
+      if (items.length > 0) {
+        items.forEach(row => {
+          const bankName = row.bank_title || row.filename || '-';
+          const relPath = row.rel_path || row.filename || '-';
           succTbody.innerHTML += `
             <tr style="border-bottom: 1px solid var(--border);">
               <td style="padding: 0.55rem 0.85rem; font-weight: 700; color: #818cf8;">${row.subject}</td>
               <td style="padding: 0.55rem 0.85rem; color: white;">${row.chapter}</td>
+              <td style="padding: 0.55rem 0.85rem; color: #38bdf8; font-weight: 600;">${bankName}</td>
               <td style="padding: 0.55rem 0.85rem; text-align: center;"><span style="background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700;">${row.question_count} Qs</span></td>
-              <td style="padding: 0.55rem 0.85rem; color: #94a3b8; font-family: monospace; font-size: 0.78rem;">${row.filename}</td>
+              <td style="padding: 0.55rem 0.85rem; color: #94a3b8; font-family: monospace; font-size: 0.78rem;">${relPath}</td>
             </tr>
           `;
         });
       } else {
-        succTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 1rem; color: #94a3b8;">No chapters extracted</td></tr>';
+        succTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 1rem; color: #94a3b8;">No question banks extracted</td></tr>';
       }
 
-      if (summary.failed_chapters && summary.failed_chapters.length > 0) {
+      // Skipped Banks
+      if (summary.skipped_items && summary.skipped_items.length > 0 && skipBox && skipTbody) {
+        skipBox.style.display = 'block';
+        skipTbody.innerHTML = '';
+        summary.skipped_items.forEach(sk => {
+          skipTbody.innerHTML += `
+            <tr style="border-bottom: 1px solid rgba(245, 158, 11, 0.15);">
+              <td style="padding: 0.4rem 0.65rem; font-weight: 600; color: #fde68a;">${sk.subject}</td>
+              <td style="padding: 0.4rem 0.65rem; color: white;">${sk.chapter}</td>
+              <td style="padding: 0.4rem 0.65rem; color: #fbbf24;">${sk.bank_title}</td>
+              <td style="padding: 0.4rem 0.65rem;"><span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 0.15rem 0.4rem; border-radius: 3px; font-family: monospace; font-size: 0.76rem;">'${sk.exclude_rule}'</span></td>
+            </tr>
+          `;
+        });
+      } else if (skipBox) {
+        skipBox.style.display = 'none';
+      }
+
+      // Failed Banks
+      const failed = summary.failed_items || summary.failed_chapters || [];
+      if (failed.length > 0) {
         failBox.style.display = 'block';
         failTbody.innerHTML = '';
-        summary.failed_chapters.forEach(f => {
+        failed.forEach(f => {
+          const target = f.bank_title || f.chapter || '-';
           failTbody.innerHTML += `
             <tr style="border-bottom: 1px solid rgba(239, 68, 68, 0.15);">
               <td style="padding: 0.4rem 0.65rem; font-weight: 600; color: #fca5a5;">${f.subject}</td>
-              <td style="padding: 0.4rem 0.65rem; color: white;">${f.chapter}</td>
+              <td style="padding: 0.4rem 0.65rem; color: white;">${target}</td>
               <td style="padding: 0.4rem 0.65rem; color: #f87171;">${f.reason}</td>
             </tr>
           `;

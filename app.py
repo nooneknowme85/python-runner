@@ -392,11 +392,14 @@ class Handler(BaseHTTPRequestHandler):
                 res = {
                     "id": active_neetprep_job.id,
                     "state": active_neetprep_job.state,
+                    "mode": getattr(active_neetprep_job, "mode", "all_banks"),
+                    "exclude_keywords": getattr(active_neetprep_job, "exclude_keywords", ""),
                     "message": active_neetprep_job.message,
                     "done": active_neetprep_job.done,
                     "total": active_neetprep_job.total,
                     "active_subject": active_neetprep_job.active_subject,
                     "active_chapter": active_neetprep_job.active_chapter,
+                    "active_bank": getattr(active_neetprep_job, "active_bank", ""),
                     "logs": active_neetprep_job.logs[since_idx:],
                     "log_total": len(active_neetprep_job.logs),
                     "has_zip": bool(active_neetprep_job.output_zip_path and active_neetprep_job.output_zip_path.is_file()),
@@ -751,14 +754,18 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 job_id = str(uuid.uuid4())[:8]
+                mode = payload.get("mode", "all_banks")
                 prefix = payload.get("prefix", "jee mains mcq [2014-2026] neetprep")
+                exclude_keywords = payload.get("exclude_keywords", "0.5, absorb, verma, jee")
                 subjects = payload.get("subjects", ["All"])
                 chapters = payload.get("chapters", [])
 
                 active_neetprep_job = NEETPREP.NeetprepJob(
                     job_id=job_id,
                     output_dir=NEETPREP_OUTPUT_DIR,
+                    mode=mode,
                     prefix=prefix,
+                    exclude_keywords=exclude_keywords,
                     target_subjects=subjects,
                     target_chapters=chapters
                 )

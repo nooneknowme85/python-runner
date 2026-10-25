@@ -1,12 +1,15 @@
 """NEETprep Question Extractor for Python Runner & Quizzy.
 
 Features:
-- DuckDuckGo-powered chapter discovery (search format: "{prefix} {clean_chapter}").
-- Built-in syllabus & chapter topic mapping for instant zero-latency extractions.
-- Direct NEETprep GraphQL API pagination with correct schema & headers.
-- Tracks exact question count per JSON file.
-- Generates comprehensive failure & success summary reports (README_SUMMARY.md & extraction_summary.json).
-- Thread-safe NeetprepJob class for web UI + CLI standalone runner.
+- Bulk Extraction Mode: Extracts all available question banks per chapter into structured subfolders:
+    <Subject>/<Chapter>/<Bank_Title>.json
+- Exclude Filter: Skips banks matching custom exclude keywords (e.g. "0.5, absorb, verma, jee").
+- Single Prefix Search Mode: Discovers specific banks via prefix matching & DuckDuckGo.
+- High-precision disambiguation for Recommended MCQs vs Recommended PYQs, HC Verma, JEE Mains, Exemplar, etc.
+- Direct NEETprep GraphQL API pagination with schema & auto-CloudFront bypass.
+- Tracks exact question count per JSON file and packages structured ZIP archive.
+- Generates comprehensive markdown report (README_SUMMARY.md) & JSON summary (extraction_summary.json).
+- Thread-safe NeetprepJob class for Web Studio (app.py) + Standalone CLI runner.
 """
 
 from __future__ import annotations
@@ -179,7 +182,7 @@ def fetch_chapter_bank_links_http(base_url: str) -> List[Tuple[str, str]]:
             page_html = resp.read().decode('utf-8', errors='replace')
     except Exception:
         return []
-    
+
     matches = re.findall(r'<a[^>]+href="([^"]+testId=[^"]+)"[^>]*>(.*?)</a>', page_html, re.DOTALL)
     results: List[Tuple[str, str]] = []
     for href, text in matches:
@@ -194,8 +197,9 @@ def fetch_chapter_bank_links_http(base_url: str) -> List[Tuple[str, str]]:
 
 
 def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str) -> Tuple[Optional[str], Optional[str]]:
-    """Matches user prefix (e.g. 'Padma Shri H C Verma...', 'jee mains...', 'NCERT Exemplar...') against the question banks found on a chapter page."""
-    clean_prefix = re.sub(r'[\(\)\[\]\/\-\:]', ' ', user_prefix.lower())
+    """Matches user prefix (e.g. 'Padma Shri H C Verma...', 'jee mains...', 'Recommended mcqs...', 'NCERT Exemplar...') against the question banks found on a chapter page."""
+    raw_prefix_lower = user_prefix.lower()
+    clean_prefix = re.sub(r'[\(\)\[\]\/\-\:]', ' ', raw_prefix_lower)
     noise = {'neetprep', 'mcqs', 'mcq', 'based', 'questions', 'question', 'bank', 'site', 'https', 'com'}
     prefix_tokens = [w for w in clean_prefix.split() if w not in noise]
 
@@ -231,6 +235,13 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
             score += 5
         if any(w in prefix_tokens for w in ['absorb']) and any(w in text_tokens for w in ['absorb']):
             score += 10
+        if any(w in prefix_tokens for w in ['recommended']) and any(w in text_tokens for w in ['recommended']):
+            score += 10
+            # Disambiguate Recommended MCQs vs Recommended PYQs
+            if any(w in raw_prefix_lower for w in ['mcq', 'mcqs']) and any(w in clean_text for w in ['mcq', 'mcqs']):
+                score += 6
+            if any(w in raw_prefix_lower for w in ['pyq', 'pyqs']) and any(w in clean_text for w in ['pyq', 'pyqs']):
+                score += 6
 
         if score > best_score:
             best_score = score
@@ -238,7 +249,7 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
             best_text = link_text
 
     min_required = 4
-    if any(k in prefix_tokens for k in ['verma', 'hcv', 'jee', 'exemplar', 'main', 'mains']):
+    if any(k in prefix_tokens for k in ['verma', 'hcv', 'jee', 'exemplar', 'main', 'mains', 'recommended']):
         min_required = 8
 
     if best_score >= min_required and best_link:
@@ -246,6 +257,50 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
     return None, None
 
 
+def get_chapter_all_banks_filtered(
+    base_url: str,
+    exclude_keywords: str,
+    browser_session: Optional[Any] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Extracts all distinct question banks from a chapter page and filters out
+    any matching the comma-separated exclude_keywords.
+    """
+    raw_links = fetch_chapter_bank_links_http(base_url)
+    if not raw_links and browser_session:
+        raw_links = browser_session.get_all_bank_links(base_url)
+
+    exclude_tokens = [tok.strip().lower() for tok in exclude_keywords.split(",") if tok.strip()]
+
+    queued: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    seen_test_ids = set()
+
+    for title, url in raw_links:
+        subj_num, chap_num, course_num, test_id = parse_neetprep_url(url)
+        if not test_id or test_id in seen_test_ids:
+            continue
+        seen_test_ids.add(test_id)
+
+        title_lower = title.lower()
+        matched_exclude = next((ex for ex in exclude_tokens if ex in title_lower), None)
+
+        bank_info = {
+            "title": title,
+            "url": url,
+            "subject_num": subj_num,
+            "chapter_num": chap_num,
+            "course_num": course_num,
+            "test_id": test_id
+        }
+
+        if matched_exclude:
+            bank_info["exclude_rule"] = matched_exclude
+            skipped.append(bank_info)
+        else:
+            queued.append(bank_info)
+
+    return queued, skipped
 
 
 # =============================================================================
@@ -254,14 +309,15 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
 
 def sanitize_filename(name: str) -> str:
     """Sanitizes names for safe file paths."""
-    return re.sub(r'[\/\\?%*:|"<>#]', '_', (name or "untitled")).strip()
+    clean = re.sub(r'[\/\\?%*:|"<>#]', '_', (name or "untitled")).strip()
+    clean = re.sub(r'\s+', '_', clean)
+    clean = re.sub(r'_+', '_', clean)
+    return clean.strip('_')
 
 
 def safe_slug(text: str) -> str:
     """Generates clean slug for prefixes and files."""
     return re.sub(r'[^a-zA-Z0-9_\-]', '_', text or "").strip('_')
-
-
 
 
 # =============================================================================
@@ -282,24 +338,24 @@ def search_duckduckgo_http(query: str, timeout: int = 15) -> Optional[str]:
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
+            page_html = resp.read().decode("utf-8", errors="replace")
 
         # 1. Search in result__a links
-        links = re.findall(r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"', html)
+        links = re.findall(r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"', page_html)
         for l in links:
             clean = unescape_and_clean_url(l)
             if clean and "neetprep.com/questions" in clean:
                 return clean
 
         # 2. Search anywhere in HTML for neetprep question links
-        matches = re.findall(r'href="([^"]*neetprep\.com\/questions[^"]*)"', html, re.IGNORECASE)
+        matches = re.findall(r'href="([^"]*neetprep\.com\/questions[^"]*)"', page_html, re.IGNORECASE)
         for m in matches:
             clean = unescape_and_clean_url(m)
             if clean and "neetprep.com/questions/" in clean:
                 return clean
 
         # 3. Search for DDG redirect links: uddg=...
-        uddg_matches = re.findall(r'uddg=([^\s&"]+)', html, re.IGNORECASE)
+        uddg_matches = re.findall(r'uddg=([^\s&"]+)', page_html, re.IGNORECASE)
         for m in uddg_matches:
             clean = unescape_and_clean_url(urllib.parse.unquote(m))
             if clean and "neetprep.com/questions/" in clean:
@@ -336,8 +392,8 @@ def resolve_chapter_url(
 ) -> Tuple[Optional[str], str]:
     """
     Dynamically resolves the target question bank URL for (subject, chapter, prefix).
-    1. If in CHAPTER_BASE_MAP: builds the chapter base URL, inspects all question banks on the page
-       via HTTP (or in-browser), and matches the bank corresponding to user's prefix.
+    1. If in CHAPTER_BASE_MAP: builds chapter base URL, inspects question banks on the page
+       via HTTP (or in-browser), and matches bank corresponding to user prefix.
     2. If unlisted: searches DuckDuckGo for '{prefix} {clean_chapter}'.
     """
     def _log(msg: str):
@@ -375,14 +431,14 @@ def resolve_chapter_url(
         _log(f"⚠️ [No Match] Chapter '{chapter}' has no question bank matching prefix: \"{prefix}\"")
         if http_links:
             _log(f"📋 Available question banks found on this chapter page:")
-            for title, _ in http_links[:10]:
+            for title, _ in http_links[:12]:
                 _log(f"   • {title}")
         return None, "no_matching_bank"
 
-    # 2. Dynamic search as requested by user for custom or unlisted chapters:
+    # 2. Dynamic search for custom or unlisted chapters:
     clean_ch = re.sub(r'[,.\-_]', ' ', chapter).strip()
     clean_ch = re.sub(r'\s+', ' ', clean_ch).lower()
-    
+
     query = f"{prefix} {clean_ch}"
     _log(f"🔍 [DuckDuckGo Search Query] \"{query}\"")
 
@@ -400,8 +456,6 @@ def resolve_chapter_url(
     return None, "not_found"
 
 
-
-
 # =============================================================================
 # URL Parameter Extraction & GraphQL Engine
 # =============================================================================
@@ -411,7 +465,6 @@ def parse_neetprep_url(url: str) -> Tuple[Optional[str], Optional[str], str, Opt
     parsed = urllib.parse.urlparse(url)
     path_parts = [p for p in parsed.path.split('/') if p]
 
-    # Expected: ['questions', '2310-Physics', '7972-Units-Measurement']
     if len(path_parts) < 3 or path_parts[0] != 'questions':
         return None, None, "287", None
 
@@ -508,14 +561,14 @@ class PlaywrightNeetprepSession:
             self.close()
             return False
 
-    def resolve_bank_link(self, base_url: str, user_prefix: str) -> Tuple[Optional[str], Optional[str]]:
-        """Opens the chapter base URL in Chromium and matches the question bank corresponding to user_prefix."""
+    def get_all_bank_links(self, base_url: str) -> List[Tuple[str, str]]:
+        """Opens the chapter base URL in Chromium and extracts all question bank links."""
         if not self.is_active:
             if not self.start():
-                return None, None
+                return []
         try:
             self._page.goto(base_url, wait_until="domcontentloaded", timeout=25000)
-            self._page.wait_for_timeout(1500)
+            self._page.wait_for_timeout(1200)
             links = self._page.evaluate("""
                 () => {
                     return Array.from(document.querySelectorAll('a'))
@@ -523,10 +576,15 @@ class PlaywrightNeetprepSession:
                         .filter(item => item[0].length > 0 && item[1].includes('questions/') && item[1].includes('testId='));
                 }
             """)
-            return find_best_test_link(links, user_prefix)
+            return [(t, u) for t, u in links if t and u]
         except Exception as ex:
-            self.log_fn(f"⚠️ In-browser bank resolution warning: {ex}")
-            return None, None
+            self.log_fn(f"⚠️ In-browser get_all_bank_links warning: {ex}")
+            return []
+
+    def resolve_bank_link(self, base_url: str, user_prefix: str) -> Tuple[Optional[str], Optional[str]]:
+        """Opens chapter base URL in Chromium and matches question bank corresponding to user_prefix."""
+        links = self.get_all_bank_links(base_url)
+        return find_best_test_link(links, user_prefix)
 
     def fetch_graphql(self, query: str, offset: int, referer_url: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         if not self.is_active:
@@ -536,7 +594,7 @@ class PlaywrightNeetprepSession:
             if referer_url and self._page and self._page.url != referer_url:
                 try:
                     self._page.goto(referer_url, wait_until="domcontentloaded", timeout=25000)
-                    self._page.wait_for_timeout(1000)
+                    self._page.wait_for_timeout(800)
                 except Exception as e:
                     self.log_fn(f"⚠️ Chapter context navigation warning: {e}")
 
@@ -644,7 +702,6 @@ def fetch_chapter_questions(
                     data = json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as ex:
                 err_body = ex.read().decode("utf-8", errors="replace")[:120]
-                # If CloudFront WAF 403 / 503 is detected on datacenter IP:
                 if ex.code in (403, 503) or "DOCTYPE" in err_body or "CloudFront" in err_body:
                     if browser_session:
                         _log("   🛡️ CloudFront WAF 403 detected on datacenter IP. Switching to Playwright in-browser engine...")
@@ -663,7 +720,6 @@ def fetch_chapter_questions(
                         return all_questions, err
                 else:
                     return all_questions, f"Request failed: {ex}"
-
 
         if not data:
             return all_questions, "Empty response received from GraphQL query"
@@ -691,35 +747,50 @@ def fetch_chapter_questions(
 # =============================================================================
 
 class ExtractionSummary:
-    """Detailed summary tracking question counts per JSON and chapter failure reasons."""
-    def __init__(self, prefix: str, target_subjects: List[str]):
+    """Detailed summary tracking question counts per JSON, skipped banks, and failure reasons."""
+    def __init__(self, mode: str, prefix: str, exclude_keywords: str, target_subjects: List[str]):
+        self.mode = mode
         self.prefix = prefix
+        self.exclude_keywords = exclude_keywords
         self.target_subjects = target_subjects
         self.start_time = datetime.datetime.now()
         self.end_time: Optional[datetime.datetime] = None
-        self.chapters_succeeded: List[Dict[str, Any]] = []
-        self.chapters_failed: List[Dict[str, Any]] = []
+        self.items_succeeded: List[Dict[str, Any]] = []
+        self.items_failed: List[Dict[str, Any]] = []
+        self.items_skipped: List[Dict[str, Any]] = []
         self.total_questions = 0
 
-    def record_success(self, subject: str, chapter: str, count: int, filename: str, url: str, time_taken: float):
-        self.chapters_succeeded.append({
+    def record_success(self, subject: str, chapter: str, bank_title: str, count: int, rel_path: str, url: str, time_taken: float):
+        self.items_succeeded.append({
             "subject": subject,
             "chapter": chapter,
+            "bank_title": bank_title,
             "question_count": count,
-            "filename": filename,
+            "filename": Path(rel_path).name,
+            "rel_path": rel_path,
             "url": url,
             "time_taken_seconds": round(time_taken, 2),
             "status": "SUCCESS"
         })
         self.total_questions += count
 
-    def record_failure(self, subject: str, chapter: str, reason: str, url: Optional[str] = None):
-        self.chapters_failed.append({
+    def record_failure(self, subject: str, chapter: str, bank_title: str, reason: str, url: Optional[str] = None):
+        self.items_failed.append({
             "subject": subject,
             "chapter": chapter,
+            "bank_title": bank_title,
             "reason": reason,
             "url": url or "N/A",
             "status": "FAILED"
+        })
+
+    def record_skipped(self, subject: str, chapter: str, bank_title: str, exclude_rule: str, test_id: str):
+        self.items_skipped.append({
+            "subject": subject,
+            "chapter": chapter,
+            "bank_title": bank_title,
+            "exclude_rule": exclude_rule,
+            "test_id": test_id
         })
 
     def finish(self):
@@ -727,7 +798,7 @@ class ExtractionSummary:
 
     @property
     def total_attempted(self) -> int:
-        return len(self.chapters_succeeded) + len(self.chapters_failed)
+        return len(self.items_succeeded) + len(self.items_failed)
 
     @property
     def duration_seconds(self) -> float:
@@ -736,66 +807,97 @@ class ExtractionSummary:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "mode": self.mode,
             "prefix": self.prefix,
+            "exclude_keywords": self.exclude_keywords,
             "target_subjects": self.target_subjects,
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "duration_seconds": self.duration_seconds,
-            "total_chapters_attempted": self.total_attempted,
-            "total_chapters_succeeded": len(self.chapters_succeeded),
-            "total_chapters_failed": len(self.chapters_failed),
+            "total_items_attempted": self.total_attempted,
+            "total_items_succeeded": len(self.items_succeeded),
+            "total_items_failed": len(self.items_failed),
+            "total_items_skipped": len(self.items_skipped),
             "total_questions_extracted": self.total_questions,
-            "success_rate_percent": round((len(self.chapters_succeeded) / max(1, self.total_attempted)) * 100, 1),
-            "succeeded_chapters": self.chapters_succeeded,
-            "failed_chapters": self.chapters_failed
+            "success_rate_percent": round((len(self.items_succeeded) / max(1, self.total_attempted)) * 100, 1),
+            "succeeded_items": self.items_succeeded,
+            "failed_items": self.items_failed,
+            "skipped_items": self.items_skipped,
+            # Backwards-compatibility aliases for Web Studio summary view:
+            "chapters_succeeded": self.items_succeeded,
+            "chapters_failed": self.items_failed,
+            "total_chapters_attempted": self.total_attempted,
+            "total_chapters_succeeded": len(self.items_succeeded),
+            "total_chapters_failed": len(self.items_failed)
         }
 
     def generate_markdown(self) -> str:
         """Generates clean markdown report inside ZIP archive."""
-        rate = round((len(self.chapters_succeeded) / max(1, self.total_attempted)) * 100, 1)
+        rate = round((len(self.items_succeeded) / max(1, self.total_attempted)) * 100, 1)
+        mode_label = "Bulk: All Available Chapter Banks" if self.mode == "all_banks" else "Single Question Bank Prefix"
         lines = [
             f"# 📊 NEETprep Extraction Summary Report",
             f"",
             f"- **Execution Date**: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}",
-            f"- **Filter Prefix**: `{self.prefix}`",
+            f"- **Extraction Mode**: {mode_label}",
+        ]
+        if self.mode == "all_banks":
+            lines.append(f"- **Exclude Filter**: `{self.exclude_keywords}`")
+            lines.append(f"- **Banks Skipped via Exclude Filter**: ⏭️ {len(self.items_skipped)} banks")
+        else:
+            lines.append(f"- **Filter Prefix**: `{self.prefix}`")
+
+        lines.extend([
             f"- **Duration**: {self.duration_seconds} seconds",
-            f"- **Total Chapters Attempted**: {self.total_attempted}",
-            f"- **Successfully Extracted**: ✅ {len(self.chapters_succeeded)} chapters",
-            f"- **Failed / Missing**: ❌ {len(self.chapters_failed)} chapters",
+            f"- **Successfully Extracted**: ✅ {len(self.items_succeeded)} question banks",
+            f"- **Failed / Missing**: ❌ {len(self.items_failed)} question banks",
             f"- **Total Questions Extracted**: 🎯 **{self.total_questions} questions**",
             f"- **Success Rate**: **{rate}%**",
             f"",
             f"---",
             f"",
-            f"## 📁 Questions Extracted Per Chapter / File",
+            f"## 📁 Extracted Question Banks & Directory Hierarchy",
             f"",
-            f"| Subject | Chapter Name | Questions | Output File |",
-            f"| :--- | :--- | :---: | :--- |"
-        ]
+            f"| Subject | Chapter Name | Question Bank | Questions | Output Path in ZIP |",
+            f"| :--- | :--- | :--- | :---: | :--- |"
+        ])
 
-        if not self.chapters_succeeded:
-            lines.append("| - | *No chapters successfully extracted* | 0 | - |")
+        if not self.items_succeeded:
+            lines.append("| - | - | *No question banks successfully extracted* | 0 | - |")
         else:
-            for item in self.chapters_succeeded:
-                lines.append(f"| {item['subject']} | {item['chapter']} | **{item['question_count']}** | `{item['filename']}` |")
+            for item in self.items_succeeded:
+                lines.append(f"| {item['subject']} | {item['chapter']} | **{item['bank_title']}** | **{item['question_count']}** | `{item['rel_path']}` |")
+
+        if self.items_skipped:
+            lines.extend([
+                f"",
+                f"---",
+                f"",
+                f"## ⏭️ Banks Skipped (Matched Exclude Filter: `{self.exclude_keywords}`)",
+                f"",
+                f"| Subject | Chapter Name | Skipped Question Bank | Matched Exclude Rule | Test ID |",
+                f"| :--- | :--- | :--- | :--- | :---: |"
+            ])
+            for item in self.items_skipped:
+                lines.append(f"| {item['subject']} | {item['chapter']} | {item['bank_title']} | `{item['exclude_rule']}` | `{item['test_id']}` |")
 
         lines.extend([
             f"",
             f"---",
             f"",
-            f"## ⚠️ Chapters That Failed / Had Zero Questions",
+            f"## ⚠️ Failed Items / Zero Questions",
             f""
         ])
 
-        if not self.chapters_failed:
-            lines.append("🎉 **Zero failures! All chapters were successfully discovered and downloaded.**")
+        if not self.items_failed:
+            lines.append("🎉 **Zero failures! All targeted question banks were successfully extracted.**")
         else:
             lines.extend([
-                f"| Subject | Chapter Name | Failure Reason | Search URL |",
-                f"| :--- | :--- | :--- | :--- |"
+                f"| Subject | Chapter Name | Bank / Target | Failure Reason | URL |",
+                f"| :--- | :--- | :--- | :--- | :--- |"
             ])
-            for item in self.chapters_failed:
-                lines.append(f"| {item['subject']} | {item['chapter']} | ❌ {item['reason']} | `{item['url']}` |")
+            for item in self.items_failed:
+                lines.append(f"| {item['subject']} | {item['chapter']} | {item['bank_title']} | ❌ {item['reason']} | `{item['url']}` |")
 
         lines.extend([
             f"",
@@ -815,13 +917,17 @@ class NeetprepJob:
         self,
         job_id: str,
         output_dir: Path,
+        mode: str = "all_banks",
         prefix: str = "jee mains mcq [2014-2026] neetprep",
+        exclude_keywords: str = "0.5, absorb, verma, jee",
         target_subjects: Optional[List[str]] = None,
         target_chapters: Optional[List[str]] = None
     ):
         self.id = job_id
         self.output_dir = output_dir
+        self.mode = mode
         self.prefix = prefix
+        self.exclude_keywords = exclude_keywords
         self.target_subjects = target_subjects or ["All"]
         self.target_chapters = target_chapters or []
 
@@ -831,6 +937,7 @@ class NeetprepJob:
         self.total = 0
         self.active_chapter = ""
         self.active_subject = ""
+        self.active_bank = ""
         self.logs: List[str] = []
         self._cancel_requested = False
         self._thread: Optional[threading.Thread] = None
@@ -877,7 +984,12 @@ class NeetprepJob:
         job_work_dir = self.output_dir / f"neetprep_{self.id}"
         job_work_dir.mkdir(parents=True, exist_ok=True)
 
-        self.summary = ExtractionSummary(self.prefix, self.target_subjects)
+        self.summary = ExtractionSummary(
+            mode=self.mode,
+            prefix=self.prefix,
+            exclude_keywords=self.exclude_keywords,
+            target_subjects=self.target_subjects
+        )
 
         # 1. Build Task Queue
         tasks: List[Dict[str, str]] = []
@@ -891,8 +1003,12 @@ class NeetprepJob:
         self.done = 0
 
         self.log(f"========================================================")
-        self.log(f"🚀 Starting NEETprep Question Extractor")
-        self.log(f"🎯 Search Prefix  : \"{self.prefix}\"")
+        self.log(f"🚀 Starting NEETprep Question Extractor Studio")
+        self.log(f"⚙️ Execution Mode : {'Bulk (All Available Chapter Banks)' if self.mode == 'all_banks' else 'Single Prefix Search'}")
+        if self.mode == "all_banks":
+            self.log(f"🚫 Exclude Filter : \"{self.exclude_keywords}\"")
+        else:
+            self.log(f"🎯 Search Prefix  : \"{self.prefix}\"")
         self.log(f"📚 Target Subjects: {', '.join(self.target_subjects)}")
         self.log(f"📋 Queued Chapters: {self.total}")
         self.log(f"========================================================")
@@ -902,7 +1018,6 @@ class NeetprepJob:
             self.message = "No matching chapters found."
             return
 
-        # 2. Iterate and Fetch
         for idx, task in enumerate(tasks, start=1):
             if self._cancel_requested:
                 self.state = "cancelled"
@@ -915,76 +1030,166 @@ class NeetprepJob:
             self.active_subject = subject
             self.active_chapter = chapter
             self.message = f"[{idx}/{self.total}] Processing {subject} - {chapter}"
-            self.log(f"\n========================================================")
-            self.log(f"🚀 [{idx}/{self.total}] Chapter: [{subject}] {chapter}")
-            self.log(f"🔎 Searching For  : Prefix=\"{self.prefix}\" + Chapter=\"{chapter}\"")
 
-            start_t = time.time()
+            # Prepare structured destination directory: job_work_dir / <Subject> / <Chapter>
+            safe_subj = sanitize_filename(subject)
+            safe_chap = sanitize_filename(chapter)
+            chap_dir = job_work_dir / safe_subj / safe_chap
 
-            # Resolve link via Database / DuckDuckGo / Dynamic Question Bank Matcher (NO CACHE)
-            target_url, source = resolve_chapter_url(
-                subject, chapter, self.prefix, log_fn=self.log, browser_session=self.browser_session
-            )
+            if self.mode == "all_banks":
+                self.log(f"\n========================================================")
+                self.log(f"🚀 [{idx}/{self.total}] Chapter: [{subject}] {chapter}")
 
-            if not target_url:
-                if source == "no_matching_bank":
-                    err_msg = f"No question bank matching prefix '{self.prefix}' exists for this chapter"
+                # Find base URL
+                base_url = None
+                if subject in CHAPTER_BASE_MAP and chapter in CHAPTER_BASE_MAP[subject]:
+                    mapping = CHAPTER_BASE_MAP[subject][chapter]
+                    safe_ch_slug = re.sub(r'[^a-zA-Z0-9]', '-', chapter).strip('-')
+                    base_url = f"https://www.neetprep.com/questions/{mapping['subject']}-{subject}/{mapping['chapter']}-{safe_ch_slug}"
                 else:
-                    err_msg = f"No valid NEETprep question bank found for prefix '{self.prefix}'"
-                self.log(f"⚠️ {err_msg}")
-                self.summary.record_failure(subject, chapter, err_msg)
-                self.done += 1
-                continue
+                    # Unlisted chapter fallback: search DDG
+                    clean_ch = re.sub(r'[,.\-_]', ' ', chapter).strip()
+                    clean_ch = re.sub(r'\s+', ' ', clean_ch).lower()
+                    found_url = search_duckduckgo_http(f"neetprep questions {clean_ch}")
+                    if found_url:
+                        subj_n, chap_n, _, _ = parse_neetprep_url(found_url)
+                        if subj_n and chap_n:
+                            base_url = f"https://www.neetprep.com/questions/{subj_n}-{subject}/{chap_n}-{clean_ch.replace(' ', '-')}"
 
+                if not base_url:
+                    err_msg = f"Could not determine chapter page URL for '{chapter}'"
+                    self.log(f"❌ {err_msg}")
+                    self.summary.record_failure(subject, chapter, "All Banks", err_msg)
+                    self.done += 1
+                    continue
 
-            # Parse IDs
-            subject_num, chapter_num, course_num, test_id = parse_neetprep_url(target_url)
-            if not subject_num or not chapter_num:
-                err_msg = f"Failed to parse subject/chapter IDs from URL: {target_url}"
-                self.log(f"❌ {err_msg}")
-                self.summary.record_failure(subject, chapter, err_msg, target_url)
-                self.done += 1
-                continue
+                self.log(f"🌐 Inspecting Chapter Page: {base_url}")
+                queued_banks, skipped_banks = get_chapter_all_banks_filtered(
+                    base_url=base_url,
+                    exclude_keywords=self.exclude_keywords,
+                    browser_session=self.browser_session
+                )
 
-            # Fetch Questions via GraphQL
-            self.log(f"⏳ Querying NEETprep GraphQL (Subject: {subject_num}, Topic: {chapter_num}, Course: {course_num})...")
-            questions, err = fetch_chapter_questions(
-                subject_num=subject_num,
-                chapter_num=chapter_num,
-                course_num=course_num,
-                test_id=test_id,
-                referer_url=target_url,
-                log_fn=self.log,
-                cancel_check=lambda: self._cancel_requested,
-                browser_session=self.browser_session
-            )
+                if skipped_banks:
+                    self.log(f"⏭️ Skipped {len(skipped_banks)} bank(s) matching exclude filter [{self.exclude_keywords}]:")
+                    for sk in skipped_banks:
+                        self.log(f"   • {sk['title']} (Rule: '{sk['exclude_rule']}', ID: {sk['test_id']})")
+                        self.summary.record_skipped(subject, chapter, sk["title"], sk["exclude_rule"], sk["test_id"])
 
-            time_taken = time.time() - start_t
+                if not queued_banks:
+                    self.log(f"⚠️ No banks left to extract for '{chapter}' (all skipped or none found).")
+                    self.done += 1
+                    continue
 
-            if err:
-                self.log(f"❌ Error fetching questions: {err}")
-                self.summary.record_failure(subject, chapter, err, target_url)
-            elif not questions:
-                err_msg = "Received 0 questions from GraphQL API"
-                self.log(f"⚠️ {err_msg}")
-                self.summary.record_failure(subject, chapter, err_msg, target_url)
+                self.log(f"📋 Queued {len(queued_banks)} bank(s) to extract for '{chapter}':")
+                for qb in queued_banks:
+                    self.log(f"   🎯 {qb['title']} (testId: {qb['test_id']})")
+
+                chap_dir.mkdir(parents=True, exist_ok=True)
+
+                for b_idx, bank in enumerate(queued_banks, 1):
+                    if self._cancel_requested:
+                        break
+                    bank_title = bank["title"]
+                    self.active_bank = bank_title
+                    self.message = f"[{idx}/{self.total}] {chapter} -> ({b_idx}/{len(queued_banks)}) {bank_title[:28]}"
+                    self.log(f"\n   📥 [{b_idx}/{len(queued_banks)}] Extracting: \"{bank_title}\" (testId: {bank['test_id']})...")
+
+                    b_start = time.time()
+                    questions, err = fetch_chapter_questions(
+                        subject_num=bank["subject_num"],
+                        chapter_num=bank["chapter_num"],
+                        course_num=bank["course_num"],
+                        test_id=bank["test_id"],
+                        referer_url=bank["url"],
+                        log_fn=self.log,
+                        cancel_check=lambda: self._cancel_requested,
+                        browser_session=self.browser_session
+                    )
+                    b_duration = time.time() - b_start
+
+                    if err:
+                        self.log(f"   ❌ Error extracting bank '{bank_title}': {err}")
+                        self.summary.record_failure(subject, chapter, bank_title, err, bank["url"])
+                    elif not questions:
+                        self.log(f"   ⚠️ Bank '{bank_title}' returned 0 questions.")
+                        self.summary.record_failure(subject, chapter, bank_title, "Returned 0 questions", bank["url"])
+                    else:
+                        safe_title = sanitize_filename(bank_title)
+                        out_filename = f"{safe_title}.json"
+                        out_file_path = chap_dir / out_filename
+                        with open(out_file_path, "w", encoding="utf-8") as f:
+                            json.dump(questions, f, indent=2, ensure_ascii=False)
+
+                        rel_path = f"{safe_subj}/{safe_chap}/{out_filename}"
+                        self.log(f"   ✅ Saved {len(questions)} questions to `{rel_path}` ({b_duration:.1f}s)")
+                        self.summary.record_success(subject, chapter, bank_title, len(questions), rel_path, bank["url"], b_duration)
+
             else:
-                # Save JSON file
-                safe_prefix = safe_slug(self.prefix)
-                safe_subj = safe_slug(subject)
-                safe_chap = safe_slug(chapter)
-                file_name = f"{safe_prefix}_{safe_subj}_{safe_chap}.json"
-                file_path = job_work_dir / file_name
+                # Single prefix search mode
+                self.log(f"\n========================================================")
+                self.log(f"🚀 [{idx}/{self.total}] Chapter: [{subject}] {chapter}")
+                self.log(f"🔎 Searching For  : Prefix=\"{self.prefix}\" + Chapter=\"{chapter}\"")
 
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(questions, f, indent=2, ensure_ascii=False)
+                start_t = time.time()
+                target_url, source = resolve_chapter_url(
+                    subject, chapter, self.prefix, log_fn=self.log, browser_session=self.browser_session
+                )
 
-                self.log(f"✅ Saved {len(questions)} questions to `{file_name}` in {time_taken:.1f}s")
-                self.summary.record_success(subject, chapter, len(questions), file_name, target_url, time_taken)
+                if not target_url:
+                    if source == "no_matching_bank":
+                        err_msg = f"No question bank matching prefix '{self.prefix}' exists for this chapter"
+                    else:
+                        err_msg = f"No valid NEETprep question bank found for prefix '{self.prefix}'"
+                    self.log(f"⚠️ {err_msg}")
+                    self.summary.record_failure(subject, chapter, self.prefix, err_msg)
+                    self.done += 1
+                    continue
+
+                subject_num, chapter_num, course_num, test_id = parse_neetprep_url(target_url)
+                if not subject_num or not chapter_num:
+                    err_msg = f"Failed to parse subject/chapter IDs from URL: {target_url}"
+                    self.log(f"❌ {err_msg}")
+                    self.summary.record_failure(subject, chapter, self.prefix, err_msg, target_url)
+                    self.done += 1
+                    continue
+
+                self.log(f"⏳ Querying NEETprep GraphQL (Subject: {subject_num}, Topic: {chapter_num}, Course: {course_num}, Test: {test_id})...")
+                questions, err = fetch_chapter_questions(
+                    subject_num=subject_num,
+                    chapter_num=chapter_num,
+                    course_num=course_num,
+                    test_id=test_id,
+                    referer_url=target_url,
+                    log_fn=self.log,
+                    cancel_check=lambda: self._cancel_requested,
+                    browser_session=self.browser_session
+                )
+                time_taken = time.time() - start_t
+
+                if err:
+                    self.log(f"❌ Error fetching questions: {err}")
+                    self.summary.record_failure(subject, chapter, self.prefix, err, target_url)
+                elif not questions:
+                    err_msg = "Received 0 questions from GraphQL API"
+                    self.log(f"⚠️ {err_msg}")
+                    self.summary.record_failure(subject, chapter, self.prefix, err_msg, target_url)
+                else:
+                    chap_dir.mkdir(parents=True, exist_ok=True)
+                    safe_prefix = safe_slug(self.prefix)
+                    file_name = f"{safe_prefix}.json"
+                    file_path = chap_dir / file_name
+
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump(questions, f, indent=2, ensure_ascii=False)
+
+                    rel_path = f"{safe_subj}/{safe_chap}/{file_name}"
+                    self.log(f"✅ Saved {len(questions)} questions to `{rel_path}` in {time_taken:.1f}s")
+                    self.summary.record_success(subject, chapter, self.prefix, len(questions), rel_path, target_url, time_taken)
 
             self.done += 1
 
-        # 3. Finish and Create Summary Documents
+        # Finish and Create Summary Documents
         self.summary.finish()
         summary_dict = self.summary.to_dict()
         markdown_report = self.summary.generate_markdown()
@@ -997,16 +1202,20 @@ class NeetprepJob:
         with open(summary_md_path, "w", encoding="utf-8") as f:
             f.write(markdown_report)
 
-        # 4. Bundle into Downloadable ZIP Archive
-        safe_prefix = safe_slug(self.prefix) or "neetprep"
-        zip_filename = f"{safe_prefix}_Extracted_Bank_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        # Bundle into Downloadable ZIP Archive preserving folder structure
+        now_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        if self.mode == "all_banks":
+            zip_filename = f"NEETprep_AllBanks_{now_str}.zip"
+        else:
+            safe_prefix = safe_slug(self.prefix) or "neetprep"
+            zip_filename = f"{safe_prefix}_Extracted_{now_str}.zip"
         zip_filepath = self.output_dir / zip_filename
 
         self.log(f"\n📦 Packaging all chapters and summary reports into `{zip_filename}`...")
         with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as z:
-            for item in job_work_dir.iterdir():
+            for item in job_work_dir.rglob("*"):
                 if item.is_file():
-                    z.write(item, arcname=item.name)
+                    z.write(item, arcname=item.relative_to(job_work_dir).as_posix())
 
         self.output_zip_path = zip_filepath
 
@@ -1015,23 +1224,25 @@ class NeetprepJob:
         except Exception:
             pass
 
-        # 5. Final Summary Output
+        # Final Summary Output
         self.log("\n" + "=" * 60)
         self.log("📊 EXTRACTION SUMMARY:")
-        self.log(f"   • Total Chapters Attempted: {self.summary.total_attempted}")
-        self.log(f"   • Successfully Extracted  : {len(self.summary.chapters_succeeded)} chapters ({self.summary.total_questions} questions)")
-        self.log(f"   • Failed Chapters         : {len(self.summary.chapters_failed)} chapters")
+        self.log(f"   • Total Items Attempted   : {self.summary.total_attempted}")
+        self.log(f"   • Successfully Extracted  : {len(self.summary.items_succeeded)} banks ({self.summary.total_questions} questions)")
+        if self.summary.items_skipped:
+            self.log(f"   • Skipped (Exclude Filter): {len(self.summary.items_skipped)} banks")
+        self.log(f"   • Failed Items            : {len(self.summary.items_failed)}")
         self.log(f"   • Total Time Taken        : {self.summary.duration_seconds}s")
         self.log(f"   • ZIP Archive             : {zip_filepath.name}")
-        if self.summary.chapters_failed:
-            self.log("   ❌ FAILED CHAPTERS LIST:")
-            for failed in self.summary.chapters_failed:
-                self.log(f"      - [{failed['subject']}] {failed['chapter']} (Reason: {failed['reason']})")
+        if self.summary.items_failed:
+            self.log("   ❌ FAILED ITEMS LIST:")
+            for failed in self.summary.items_failed:
+                self.log(f"      - [{failed['subject']}] {failed['chapter']} - {failed['bank_title']} (Reason: {failed['reason']})")
         self.log("=" * 60)
 
         if not self._cancel_requested:
             self.state = "completed"
-            self.message = f"Finished! Extracted {self.summary.total_questions} questions across {len(self.summary.chapters_succeeded)} chapters."
+            self.message = f"Finished! Extracted {self.summary.total_questions} questions across {len(self.summary.items_succeeded)} banks."
 
 
 # =============================================================================
@@ -1040,7 +1251,9 @@ class NeetprepJob:
 
 def main():
     parser = argparse.ArgumentParser(description="NEETprep DuckDuckGo + GraphQL Extractor")
-    parser.add_argument("--prefix", type=str, default="jee mains mcq [2014-2026] neetprep", help="Search prefix / filter tag")
+    parser.add_argument("--mode", type=str, default="all_banks", choices=["all_banks", "single_prefix"], help="Extraction mode (all_banks or single_prefix)")
+    parser.add_argument("--exclude", type=str, default="0.5, absorb, verma, jee", help="Comma-separated bank titles/keywords to exclude in all_banks mode")
+    parser.add_argument("--prefix", type=str, default="jee mains mcq [2014-2026] neetprep", help="Search prefix in single_prefix mode")
     parser.add_argument("--subject", type=str, default="All", choices=["All", "Physics", "Chemistry", "Botany", "Zoology"], help="Target subject")
     parser.add_argument("--chapter", type=str, default="", help="Optional single chapter name to extract")
     parser.add_argument("--output-dir", type=str, default="./NEETPrep_Downloads", help="Directory to save downloads")
@@ -1054,7 +1267,9 @@ def main():
     job = NeetprepJob(
         job_id=job_id,
         output_dir=out_dir,
+        mode=args.mode,
         prefix=args.prefix,
+        exclude_keywords=args.exclude,
         target_subjects=target_subjects,
         target_chapters=target_chapters
     )
