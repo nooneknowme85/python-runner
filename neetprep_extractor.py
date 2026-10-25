@@ -214,26 +214,22 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
             elif any(pt in tt for tt in text_tokens):
                 score += 1
 
-        # Specific high-confidence boosts
-        if 'verma' in prefix_tokens and 'verma' in text_tokens:
+        # Specific high-confidence boosts (supporting singular and plural forms)
+        if any(w in prefix_tokens for w in ['jee']) and any(w in text_tokens for w in ['jee']):
             score += 10
-        if 'hcv' in prefix_tokens and ('verma' in text_tokens or 'h' in text_tokens):
+        if any(w in prefix_tokens for w in ['main', 'mains']) and any(w in text_tokens for w in ['main', 'mains']):
+            score += 6
+        if any(w in prefix_tokens for w in ['verma', 'hcv']) and any(w in text_tokens for w in ['verma', 'hcv', 'h']):
             score += 10
-        if 'jee' in prefix_tokens and 'jee' in text_tokens:
+        if any(w in prefix_tokens for w in ['exemplar']) and any(w in text_tokens for w in ['exemplar']):
             score += 10
-        if 'mains' in prefix_tokens and 'mains' in text_tokens:
-            score += 5
-        if 'exemplar' in prefix_tokens and 'exemplar' in text_tokens:
-            score += 10
-        if 'exercise' in prefix_tokens and 'exercise' in text_tokens:
+        if any(w in prefix_tokens for w in ['exercise', 'exercises']) and any(w in text_tokens for w in ['exercise', 'exercises']):
             score += 8
-        if 'solved' in prefix_tokens and 'solved' in text_tokens:
+        if any(w in prefix_tokens for w in ['solved', 'example', 'examples']) and any(w in text_tokens for w in ['solved', 'example', 'examples']):
             score += 8
-        if 'past' in prefix_tokens and 'past' in text_tokens:
+        if any(w in prefix_tokens for w in ['past', 'pyq', 'pyqs']) and any(w in text_tokens for w in ['past', 'pyq', 'pyqs']):
             score += 5
-        if 'pyq' in prefix_tokens and ('pyq' in text_tokens or 'past' in text_tokens):
-            score += 5
-        if 'absorb' in prefix_tokens and 'absorb' in text_tokens:
+        if any(w in prefix_tokens for w in ['absorb']) and any(w in text_tokens for w in ['absorb']):
             score += 10
 
         if score > best_score:
@@ -242,12 +238,13 @@ def find_best_test_link(available_links: List[Tuple[str, str]], user_prefix: str
             best_text = link_text
 
     min_required = 4
-    if any(k in prefix_tokens for k in ['verma', 'hcv', 'jee', 'exemplar']):
+    if any(k in prefix_tokens for k in ['verma', 'hcv', 'jee', 'exemplar', 'main', 'mains']):
         min_required = 8
 
     if best_score >= min_required and best_link:
         return best_link, best_text
     return None, None
+
 
 
 
@@ -265,38 +262,6 @@ def safe_slug(text: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_\-]', '_', text or "").strip('_')
 
 
-class PersistentCache:
-    """Stores resolved chapter URLs to avoid repeated searches."""
-    def __init__(self, cache_file: Path):
-        self.cache_file = cache_file
-        self.data: Dict[str, str] = {}
-        self.load()
-
-    def _key(self, subject: str, chapter: str, prefix: str) -> str:
-        return f"{subject.strip().lower()}::{chapter.strip().lower()}::{prefix.strip().lower()}"
-
-    def get(self, subject: str, chapter: str, prefix: str) -> Optional[str]:
-        return self.data.get(self._key(subject, chapter, prefix))
-
-    def set(self, subject: str, chapter: str, prefix: str, url: str):
-        self.data[self._key(subject, chapter, prefix)] = url
-        self.save()
-
-    def load(self):
-        if self.cache_file.is_file():
-            try:
-                with open(self.cache_file, "r", encoding="utf-8") as f:
-                    self.data = json.load(f)
-            except Exception:
-                self.data = {}
-
-    def save(self):
-        try:
-            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.cache_file, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
 
 
 # =============================================================================
@@ -366,75 +331,74 @@ def resolve_chapter_url(
     subject: str,
     chapter: str,
     prefix: str,
-    cache: PersistentCache,
     log_fn: Optional[Callable[[str], None]] = None,
     browser_session: Optional[Any] = None
 ) -> Tuple[Optional[str], str]:
     """
     Dynamically resolves the target question bank URL for (subject, chapter, prefix).
-    1. Checks persistent cache for exact (subject, chapter, prefix) match.
-    2. If in CHAPTER_BASE_MAP: builds the chapter base URL, inspects all question banks on the page
+    1. If in CHAPTER_BASE_MAP: builds the chapter base URL, inspects all question banks on the page
        via HTTP (or in-browser), and matches the bank corresponding to user's prefix.
-    3. If unlisted: searches DuckDuckGo for '{prefix} {clean_chapter}'.
+    2. If unlisted: searches DuckDuckGo for '{prefix} {clean_chapter}'.
     """
     def _log(msg: str):
         if log_fn:
             log_fn(msg)
 
-    # 1. Check local persistent cache
-    cached_url = cache.get(subject, chapter, prefix)
-    if cached_url:
-        _log(f"⚡ [Cache Hit] Found saved link for: {chapter}")
-        return cached_url, "cache"
-
-    # 2. Check CHAPTER_BASE_MAP for known subject & chapter
+    # 1. Check CHAPTER_BASE_MAP for known subject & chapter
     if subject in CHAPTER_BASE_MAP and chapter in CHAPTER_BASE_MAP[subject]:
         mapping = CHAPTER_BASE_MAP[subject][chapter]
         safe_ch = re.sub(r'[^a-zA-Z0-9]', '-', chapter).strip('-')
         base_url = f"https://www.neetprep.com/questions/{mapping['subject']}-{subject}/{mapping['chapter']}-{safe_ch}"
 
-        _log(f"🔎 [Resolving Bank] {subject} - {chapter} -> Looking for question bank matching: '{prefix}'")
+        _log(f"🔎 [Search Request] Prefix: \"{prefix}\" | Chapter: \"{chapter}\"")
+        _log(f"🌐 [Inspecting Page] {base_url}")
 
-        # 2a. Fast direct HTTP inspect
+        # 1a. Fast direct HTTP inspect of NEETprep question banks
         http_links = fetch_chapter_bank_links_http(base_url)
         if http_links:
+            _log(f"📋 Found {len(http_links)} question banks on chapter page. Matching against \"{prefix}\"...")
             matched_url, matched_title = find_best_test_link(http_links, prefix)
             if matched_url:
-                cache.set(subject, chapter, prefix, matched_url)
-                _log(f"🎯 [Matched Bank] '{matched_title}'")
+                _log(f"🎯 [Question Bank Matched] \"{matched_title}\"")
+                _log(f"🔗 Target URL: {matched_url}")
                 return matched_url, f"bank_http: {matched_title}"
 
-        # 2b. In-browser inspect via Chromium session if HTTP didn't match
+        # 1b. In-browser inspect via Chromium session if HTTP didn't match or failed
         if browser_session:
-            _log(f"🌐 Inspecting chapter page in Chromium browser...")
+            _log(f"🌐 Opening chapter page in Chromium browser to inspect question banks...")
             matched_url, matched_title = browser_session.resolve_bank_link(base_url, prefix)
             if matched_url:
-                cache.set(subject, chapter, prefix, matched_url)
-                _log(f"🎯 [In-Browser Matched Bank] '{matched_title}'")
+                _log(f"🎯 [In-Browser Matched Bank] \"{matched_title}\"")
+                _log(f"🔗 Target URL: {matched_url}")
                 return matched_url, f"bank_browser: {matched_title}"
 
-        _log(f"⚠️ Chapter '{chapter}' has no question bank matching prefix '{prefix}'.")
+        _log(f"⚠️ [No Match] Chapter '{chapter}' has no question bank matching prefix: \"{prefix}\"")
+        if http_links:
+            _log(f"📋 Available question banks found on this chapter page:")
+            for title, _ in http_links[:10]:
+                _log(f"   • {title}")
         return None, "no_matching_bank"
 
-    # 3. Dynamic search as requested by user for custom or unlisted chapters:
+    # 2. Dynamic search as requested by user for custom or unlisted chapters:
     clean_ch = re.sub(r'[,.\-_]', ' ', chapter).strip()
     clean_ch = re.sub(r'\s+', ' ', clean_ch).lower()
     
     query = f"{prefix} {clean_ch}"
-    _log(f"🔍 Searching DuckDuckGo: {query}")
+    _log(f"🔍 [DuckDuckGo Search Query] \"{query}\"")
 
     target_url = search_duckduckgo_http(query)
     if not target_url:
         fallback_q = f"site:neetprep.com/questions {prefix} {clean_ch}"
-        _log(f"🔍 Fallback search: {fallback_q}")
+        _log(f"🔍 [Fallback DDG Search] \"{fallback_q}\"")
         target_url = search_duckduckgo_http(fallback_q)
 
     if target_url:
-        cache.set(subject, chapter, prefix, target_url)
-        _log(f"🔗 [DDG Found Link] {target_url}")
+        _log(f"🔗 [DDG Link Found] {target_url}")
         return target_url, "duckduckgo_http"
 
+    _log(f"❌ [Not Found] Search engines returned 0 results for: \"{query}\"")
     return None, "not_found"
+
 
 
 
@@ -873,7 +837,6 @@ class NeetprepJob:
 
         self.summary: Optional[ExtractionSummary] = None
         self.output_zip_path: Optional[Path] = None
-        self.cache_file = output_dir / "neetprep_cache.json"
         self.browser_session: Optional[PlaywrightNeetprepSession] = PlaywrightNeetprepSession(log_fn=self.log)
 
     def log(self, text: str):
@@ -914,7 +877,6 @@ class NeetprepJob:
         job_work_dir = self.output_dir / f"neetprep_{self.id}"
         job_work_dir.mkdir(parents=True, exist_ok=True)
 
-        cache = PersistentCache(self.cache_file)
         self.summary = ExtractionSummary(self.prefix, self.target_subjects)
 
         # 1. Build Task Queue
@@ -927,7 +889,13 @@ class NeetprepJob:
 
         self.total = len(tasks)
         self.done = 0
-        self.log(f"📋 Queued {self.total} chapters across subjects: {', '.join(self.target_subjects)}")
+
+        self.log(f"========================================================")
+        self.log(f"🚀 Starting NEETprep Question Extractor")
+        self.log(f"🎯 Search Prefix  : \"{self.prefix}\"")
+        self.log(f"📚 Target Subjects: {', '.join(self.target_subjects)}")
+        self.log(f"📋 Queued Chapters: {self.total}")
+        self.log(f"========================================================")
 
         if self.total == 0:
             self.state = "completed"
@@ -948,13 +916,14 @@ class NeetprepJob:
             self.active_chapter = chapter
             self.message = f"[{idx}/{self.total}] Processing {subject} - {chapter}"
             self.log(f"\n========================================================")
-            self.log(f"🚀 [{idx}/{self.total}] Processing: [{subject}] {chapter}")
+            self.log(f"🚀 [{idx}/{self.total}] Chapter: [{subject}] {chapter}")
+            self.log(f"🔎 Searching For  : Prefix=\"{self.prefix}\" + Chapter=\"{chapter}\"")
 
             start_t = time.time()
 
-            # Resolve link via Database / Cache / DuckDuckGo / Dynamic Question Bank Matcher
+            # Resolve link via Database / DuckDuckGo / Dynamic Question Bank Matcher (NO CACHE)
             target_url, source = resolve_chapter_url(
-                subject, chapter, self.prefix, cache, log_fn=self.log, browser_session=self.browser_session
+                subject, chapter, self.prefix, log_fn=self.log, browser_session=self.browser_session
             )
 
             if not target_url:
@@ -966,6 +935,7 @@ class NeetprepJob:
                 self.summary.record_failure(subject, chapter, err_msg)
                 self.done += 1
                 continue
+
 
             # Parse IDs
             subject_num, chapter_num, course_num, test_id = parse_neetprep_url(target_url)
