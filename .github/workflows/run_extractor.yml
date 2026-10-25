@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - app.py
+          - neetprep_extractor.py
           - quizard_extractor.py
           - studyaura_extractor.py
           - ray-book-extract.py

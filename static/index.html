@@ -1135,7 +1135,7 @@
       <div class="nav-logo-badge">⚡</div>
       <div class="nav-brand-text">
         <span class="nav-brand-name">EXTRACTION RUNNER STUDIO</span>
-        <span class="nav-brand-sub">Quizard, Ray Book &amp; Allen Cropper Suite</span>
+        <span class="nav-brand-sub">Quizard, StudyAura, Ray Book, Allen Cropper &amp; NEETprep Suite</span>
       </div>
     </div>
     <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
@@ -1151,6 +1151,9 @@
         </button>
         <button type="button" id="nav-btn-allen" class="view-switch-btn">
           ✂️ Allen Cropper
+        </button>
+        <button type="button" id="nav-btn-neetprep" class="view-switch-btn">
+          🩺 NEETprep Extractor
         </button>
         <a href="/static/quiz_player.html" target="_blank" class="view-switch-btn" style="text-decoration: none; color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">
           🧪 Quizzy Player ↗
@@ -2049,7 +2052,211 @@
 
     <!-- ========================================================================= -->
     <!-- VIEW 4: STUDYAURA EXTRACTOR -->
+    
     <!-- ========================================================================= -->
+    <!-- VIEW 5: NEETPREP EXTRACTOR -->
+    <!-- ========================================================================= -->
+    <div id="view-neetprep" style="display: none;">
+      <div class="hero-card">
+        <div class="hero-header">
+          <span class="hero-badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">
+            NEETPREP &amp; QUIZZY AUTOMATION
+          </span>
+          <h1 class="hero-title">NEETprep Question Bank Extractor</h1>
+          <p class="hero-desc">Discovers chapters via DuckDuckGo and downloads full question banks, options, answers, and explanations directly via NEETprep GraphQL into Quizzy JSON.</p>
+        </div>
+
+        <form id="neetprep-form" onsubmit="event.preventDefault();">
+          <!-- Step 1: Configuration -->
+          <div class="card" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+              <label class="form-label" for="np-prefix-input" style="font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 0;">
+                Target Prefix / Question Bank Filter
+              </label>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">DuckDuckGo Smart Search</span>
+            </div>
+
+            <input type="text" id="np-prefix-input" class="form-input" style="width: 100%; margin-bottom: 0.65rem;" value="jee mains [2014-2026] neetprep" placeholder="e.g. jee mains [2014-2026] neetprep">
+
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center;">
+              <span style="font-size: 0.76rem; color: var(--text-muted);">Quick Presets:</span>
+              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='jee mains [2014-2026] neetprep';">
+                🎯 JEE Mains (2014-2026)
+              </span>
+              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='neet pyq neetprep';">
+                🩺 NEET Past Year Questions
+              </span>
+              <span class="chip-badge" onclick="document.getElementById('np-prefix-input').value='ncert questions neetprep';">
+                📖 NCERT Drill Questions
+              </span>
+            </div>
+          </div>
+
+          <!-- Step 2: Subject Scope -->
+          <div class="card" style="margin-bottom: 1.25rem;">
+            <label class="form-label" style="font-weight: 700; color: white; margin-bottom: 0.65rem;">
+              Select Subjects to Extract:
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.65rem; margin-bottom: 1rem;">
+              <label class="allen-opt-card active" id="np-card-all" style="cursor: pointer;" onclick="toggleNpSubject('All')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="checkbox" id="np-subj-all" value="All" checked style="width: 18px; height: 18px; accent-color: #10b981;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.92rem;">🌍 All Subjects</div>
+                    <div style="font-size: 0.76rem; color: var(--text-muted);">Full NEET 85 Chapters</div>
+                  </div>
+                </div>
+              </label>
+
+              <label class="allen-opt-card" id="np-card-physics" style="cursor: pointer;" onclick="toggleNpSubject('Physics')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="checkbox" id="np-subj-physics" value="Physics" style="width: 18px; height: 18px; accent-color: #10b981;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.92rem;">⚛️ Physics</div>
+                    <div style="font-size: 0.76rem; color: var(--text-muted);">29 Chapters</div>
+                  </div>
+                </div>
+              </label>
+
+              <label class="allen-opt-card" id="np-card-chemistry" style="cursor: pointer;" onclick="toggleNpSubject('Chemistry')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="checkbox" id="np-subj-chemistry" value="Chemistry" style="width: 18px; height: 18px; accent-color: #10b981;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.92rem;">🧪 Chemistry</div>
+                    <div style="font-size: 0.76rem; color: var(--text-muted);">24 Chapters</div>
+                  </div>
+                </div>
+              </label>
+
+              <label class="allen-opt-card" id="np-card-botany" style="cursor: pointer;" onclick="toggleNpSubject('Botany')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="checkbox" id="np-subj-botany" value="Botany" style="width: 18px; height: 18px; accent-color: #10b981;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.92rem;">🌿 Botany</div>
+                    <div style="font-size: 0.76rem; color: var(--text-muted);">17 Chapters</div>
+                  </div>
+                </div>
+              </label>
+
+              <label class="allen-opt-card" id="np-card-zoology" style="cursor: pointer;" onclick="toggleNpSubject('Zoology')">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <input type="checkbox" id="np-subj-zoology" value="Zoology" style="width: 18px; height: 18px; accent-color: #10b981;">
+                  <div>
+                    <div style="font-weight: 700; color: white; font-size: 0.92rem;">🐾 Zoology</div>
+                    <div style="font-size: 0.76rem; color: var(--text-muted);">15 Chapters</div>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" for="np-chapter-input" style="font-size: 0.88rem; color: var(--text-secondary);">
+                Optional Chapter Filter (Leave blank to download all chapters in selected subjects):
+              </label>
+              <input type="text" id="np-chapter-input" class="form-input" placeholder="e.g. Units and Measurement (or leave blank)">
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+            <button type="button" id="np-btn-start" class="btn btn-primary" onclick="startNeetprepJob()" style="background: linear-gradient(135deg, #059669, #10b981); min-width: 200px;">
+              🚀 Start Extraction
+            </button>
+            <button type="button" id="np-btn-stop" class="btn btn-danger" onclick="stopNeetprepJob()" style="display: none;">
+              🛑 Stop Job
+            </button>
+            <button type="button" id="np-btn-download" class="btn btn-primary" onclick="downloadNeetprepZip()" style="display: none; background: #0284c7;">
+              📦 Download All (ZIP)
+            </button>
+            <button type="button" id="np-btn-open-folder" class="btn btn-secondary" onclick="openNeetprepFolder()">
+              📂 Open Output Folder
+            </button>
+          </div>
+
+          <!-- Progress Box -->
+          <div id="np-progress-box" class="card" style="display: none; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span id="np-progress-status" style="font-weight: 600; color: white; font-size: 0.92rem;">
+                Starting NEETprep engine...
+              </span>
+              <span id="np-progress-ratio" style="font-size: 0.82rem; color: #34d399; font-weight: 700;">
+                0 / 0
+              </span>
+            </div>
+            <div class="progress-bar-bg" style="background: rgba(15, 23, 42, 0.8); height: 8px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border);">
+              <div id="np-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #10b981, #34d399); transition: width 0.3s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Live Terminal -->
+          <div class="terminal-card" style="margin-bottom: 1.25rem;">
+            <div class="terminal-header">
+              <span class="terminal-title">🖥️ NEETprep Extractor Console</span>
+              <button type="button" class="token-action-btn" onclick="document.getElementById('np-terminal-logs').innerHTML=''">Clear</button>
+            </div>
+            <div id="np-terminal-logs" class="terminal-body" style="height: 260px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; padding: 0.85rem; background: #070b14; color: #e2e8f0; line-height: 1.5;">
+              Ready. Choose your prefix/subject and click Start Extraction.
+            </div>
+          </div>
+
+          <!-- Final Summary Report Card -->
+          <div id="np-summary-card" class="card" style="display: none; margin-bottom: 1.25rem; border: 1.5px solid #10b981;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+              <h3 style="font-size: 1.15rem; color: #34d399; font-weight: 700; margin: 0;">
+                📊 Extraction Summary Report
+              </h3>
+              <div id="np-stats-badges" style="display: flex; gap: 0.5rem; flex-wrap: wrap;"></div>
+            </div>
+
+            <!-- Per File Questions Table -->
+            <div style="margin-top: 1rem;">
+              <h4 style="font-size: 0.95rem; color: white; margin-bottom: 0.5rem;">📁 Questions Extracted Per File</h4>
+              <div style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                  <thead style="background: rgba(15, 23, 42, 0.9); position: sticky; top: 0;">
+                    <tr style="border-bottom: 1px solid var(--border); color: #94a3b8;">
+                      <th style="padding: 0.6rem 0.85rem;">Subject</th>
+                      <th style="padding: 0.6rem 0.85rem;">Chapter</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Questions</th>
+                      <th style="padding: 0.6rem 0.85rem;">File Name</th>
+                    </tr>
+                  </thead>
+                  <tbody id="np-succeeded-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Failed Chapters Box -->
+            <div id="np-failed-box" style="display: none; margin-top: 1.25rem; background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.4); border-radius: 0.65rem; padding: 1rem;">
+              <h4 style="font-size: 0.95rem; color: #f87171; margin-bottom: 0.5rem;">⚠️ Chapters That Failed / Had Zero Questions</h4>
+              <div style="max-height: 180px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5;">
+                      <th style="padding: 0.4rem 0.65rem;">Subject</th>
+                      <th style="padding: 0.4rem 0.65rem;">Chapter</th>
+                      <th style="padding: 0.4rem 0.65rem;">Failure Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody id="np-failed-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Previous Outputs -->
+          <div class="card">
+            <h3 style="font-size: 1rem; color: white; margin-bottom: 0.75rem;">📦 Previous NEETprep Output Archives</h3>
+            <div id="np-history-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <span style="font-size: 0.82rem; color: var(--text-muted);">No previous extractions found.</span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+
+<!-- ========================================================================= -->
     <div id="view-studyaura" style="display: none;">
       <div class="hero-card">
         <div class="hero-header">
@@ -2273,20 +2480,24 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     const navBtnStudyAura = document.getElementById('nav-btn-studyaura');
     const navBtnRayBook = document.getElementById('nav-btn-ray-book');
     const navBtnAllen = document.getElementById('nav-btn-allen');
+    const navBtnNeetprep = document.getElementById('nav-btn-neetprep');
     const viewQuizard = document.getElementById('view-quizard');
     const viewStudyAura = document.getElementById('view-studyaura');
     const viewRayBook = document.getElementById('view-ray-book');
     const viewAllen = document.getElementById('view-allen');
+    const viewNeetprep = document.getElementById('view-neetprep');
 
     function switchView(viewName) {
       if (navBtnQuizard) navBtnQuizard.classList.remove('active');
       if (navBtnStudyAura) navBtnStudyAura.classList.remove('active');
       if (navBtnRayBook) navBtnRayBook.classList.remove('active');
       if (navBtnAllen) navBtnAllen.classList.remove('active');
+      if (navBtnNeetprep) navBtnNeetprep.classList.remove('active');
       if (viewQuizard) viewQuizard.style.display = 'none';
       if (viewStudyAura) viewStudyAura.style.display = 'none';
       if (viewRayBook) viewRayBook.style.display = 'none';
       if (viewAllen) viewAllen.style.display = 'none';
+      if (viewNeetprep) viewNeetprep.style.display = 'none';
 
       if (viewName === 'quizard') {
         if (navBtnQuizard) navBtnQuizard.classList.add('active');
@@ -2301,6 +2512,11 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
         if (navBtnAllen) navBtnAllen.classList.add('active');
         if (viewAllen) viewAllen.style.display = 'block';
         localStorage.setItem('active_view', 'allen');
+      } else if (viewName === 'neetprep') {
+        if (navBtnNeetprep) navBtnNeetprep.classList.add('active');
+        if (viewNeetprep) viewNeetprep.style.display = 'block';
+        localStorage.setItem('active_view', 'neetprep');
+        loadNeetprepFilesHistory();
       } else {
         if (navBtnRayBook) navBtnRayBook.classList.add('active');
         if (viewRayBook) viewRayBook.style.display = 'block';
@@ -2312,6 +2528,7 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
     if (navBtnStudyAura) navBtnStudyAura.addEventListener('click', () => switchView('studyaura'));
     if (navBtnRayBook) navBtnRayBook.addEventListener('click', () => switchView('ray-book'));
     if (navBtnAllen) navBtnAllen.addEventListener('click', () => switchView('allen'));
+    if (navBtnNeetprep) navBtnNeetprep.addEventListener('click', () => switchView('neetprep'));
 
     const savedView = localStorage.getItem('active_view');
     if (savedView === 'studyaura') {
@@ -2320,6 +2537,8 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
       switchView('ray-book');
     } else if (savedView === 'allen') {
       switchView('allen');
+    } else if (savedView === 'neetprep') {
+      switchView('neetprep');
     }
 
     // ==========================================
@@ -4325,6 +4544,242 @@ https://books.streamfiles.eu.org/viewer.php?asset_ref=... | Chapter 2 Magnetism"
 
     // Apply saved theme immediately
     initTheme();
+  
+    // ==========================================
+    //       NEETPREP EXTRACTOR CONTROLLER
+    // ==========================================
+    let npPollTimer = null;
+    let npLogOffset = 0;
+
+    function toggleNpSubject(name) {
+      if (name === 'All') {
+        const allBox = document.getElementById('np-subj-all');
+        const checked = allBox.checked;
+        ['physics', 'chemistry', 'botany', 'zoology'].forEach(s => {
+          const cb = document.getElementById('np-subj-' + s);
+          if (cb) cb.checked = false;
+          const card = document.getElementById('np-card-' + s);
+          if (card) card.classList.remove('active');
+        });
+        const cardAll = document.getElementById('np-card-all');
+        if (cardAll) cardAll.classList.toggle('active', checked);
+      } else {
+        const allBox = document.getElementById('np-subj-all');
+        if (allBox) allBox.checked = false;
+        const cardAll = document.getElementById('np-card-all');
+        if (cardAll) cardAll.classList.remove('active');
+
+        const cb = document.getElementById('np-subj-' + name.toLowerCase());
+        const card = document.getElementById('np-card-' + name.toLowerCase());
+        if (card && cb) {
+          card.classList.toggle('active', cb.checked);
+        }
+      }
+    }
+
+    async function startNeetprepJob() {
+      const prefix = document.getElementById('np-prefix-input').value.trim();
+      const chapter = document.getElementById('np-chapter-input').value.trim();
+
+      const selected = [];
+      if (document.getElementById('np-subj-all').checked) {
+        selected.push('All');
+      } else {
+        ['Physics', 'Chemistry', 'Botany', 'Zoology'].forEach(s => {
+          const cb = document.getElementById('np-subj-' + s.toLowerCase());
+          if (cb && cb.checked) selected.push(s);
+        });
+      }
+
+      if (selected.length === 0) {
+        alert('Please select at least one subject to extract.');
+        return;
+      }
+
+      const startBtn = document.getElementById('np-btn-start');
+      const stopBtn = document.getElementById('np-btn-stop');
+      const dlBtn = document.getElementById('np-btn-download');
+      const progBox = document.getElementById('np-progress-box');
+      const termLogs = document.getElementById('np-terminal-logs');
+      const summaryCard = document.getElementById('np-summary-card');
+
+      startBtn.disabled = true;
+      stopBtn.style.display = 'inline-block';
+      dlBtn.style.display = 'none';
+      progBox.style.display = 'block';
+      summaryCard.style.display = 'none';
+      termLogs.innerHTML = '🚀 Starting NEETprep extraction job...\n';
+      npLogOffset = 0;
+
+      try {
+        const resp = await fetch('/api/neetprep/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prefix: prefix,
+            subjects: selected,
+            chapters: chapter ? [chapter] : []
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Failed to start job');
+        startNeetprepPolling();
+      } catch (err) {
+        alert('Error: ' + err.message);
+        startBtn.disabled = false;
+        stopBtn.style.display = 'none';
+      }
+    }
+
+    async function stopNeetprepJob() {
+      if (confirm('Cancel the running NEETprep extraction job?')) {
+        await fetch('/api/neetprep/stop', { method: 'POST' });
+      }
+    }
+
+    function downloadNeetprepZip() {
+      window.location.href = '/api/neetprep/download';
+    }
+
+    async function openNeetprepFolder() {
+      try {
+        await fetch('/api/neetprep/open-folder', { method: 'POST' });
+      } catch (e) {
+        alert('Unable to open folder: ' + e.message);
+      }
+    }
+
+    function startNeetprepPolling() {
+      if (npPollTimer) clearInterval(npPollTimer);
+      npPollTimer = setInterval(pollNeetprepStatus, 1500);
+    }
+
+    async function pollNeetprepStatus() {
+      try {
+        const resp = await fetch(`/api/neetprep/status?since=${npLogOffset}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        const termLogs = document.getElementById('np-terminal-logs');
+        if (data.logs && data.logs.length > 0) {
+          data.logs.forEach(msg => {
+            const div = document.createElement('div');
+            div.textContent = msg;
+            termLogs.appendChild(div);
+          });
+          termLogs.scrollTop = termLogs.scrollHeight;
+          npLogOffset += data.logs.length;
+        }
+
+        const statusEl = document.getElementById('np-progress-status');
+        const ratioEl = document.getElementById('np-progress-ratio');
+        const barEl = document.getElementById('np-progress-bar');
+        const startBtn = document.getElementById('np-btn-start');
+        const stopBtn = document.getElementById('np-btn-stop');
+        const dlBtn = document.getElementById('np-btn-download');
+
+        statusEl.innerText = data.message || 'Processing...';
+        if (data.total > 0) {
+          const pct = Math.min(100, Math.round((data.done / data.total) * 100));
+          barEl.style.width = pct + '%';
+          ratioEl.innerText = `${data.done} / ${data.total} chapters (${pct}%)`;
+        }
+
+        if (data.has_zip) {
+          dlBtn.style.display = 'inline-block';
+        }
+
+        if (data.state === 'completed' || data.state === 'failed' || data.state === 'cancelled') {
+          clearInterval(npPollTimer);
+          startBtn.disabled = false;
+          stopBtn.style.display = 'none';
+          if (data.summary) {
+            renderNeetprepSummary(data.summary);
+          }
+          loadNeetprepFilesHistory();
+        }
+      } catch (e) {
+        console.error('NEETprep polling error', e);
+      }
+    }
+
+    function renderNeetprepSummary(summary) {
+      const card = document.getElementById('np-summary-card');
+      const badges = document.getElementById('np-stats-badges');
+      const succTbody = document.getElementById('np-succeeded-tbody');
+      const failBox = document.getElementById('np-failed-box');
+      const failTbody = document.getElementById('np-failed-tbody');
+
+      card.style.display = 'block';
+      badges.innerHTML = `
+        <span class="chip-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">🎯 Total Questions: ${summary.total_questions_extracted}</span>
+        <span class="chip-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">✅ Succeeded: ${summary.total_chapters_succeeded} / ${summary.total_chapters_attempted}</span>
+        <span class="chip-badge" style="background: ${summary.total_chapters_failed > 0 ? 'rgba(239, 68, 68, 0.2); color: #fca5a5;' : 'rgba(100, 116, 139, 0.2); color: #94a3b8;'}">❌ Failed: ${summary.total_chapters_failed}</span>
+        <span class="chip-badge">⏱️ Duration: ${summary.duration_seconds}s</span>
+      `;
+
+      succTbody.innerHTML = '';
+      if (summary.succeeded_chapters && summary.succeeded_chapters.length > 0) {
+        summary.succeeded_chapters.forEach(row => {
+          succTbody.innerHTML += `
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 0.55rem 0.85rem; font-weight: 700; color: #818cf8;">${row.subject}</td>
+              <td style="padding: 0.55rem 0.85rem; color: white;">${row.chapter}</td>
+              <td style="padding: 0.55rem 0.85rem; text-align: center;"><span style="background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700;">${row.question_count} Qs</span></td>
+              <td style="padding: 0.55rem 0.85rem; color: #94a3b8; font-family: monospace; font-size: 0.78rem;">${row.filename}</td>
+            </tr>
+          `;
+        });
+      } else {
+        succTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 1rem; color: #94a3b8;">No chapters extracted</td></tr>';
+      }
+
+      if (summary.failed_chapters && summary.failed_chapters.length > 0) {
+        failBox.style.display = 'block';
+        failTbody.innerHTML = '';
+        summary.failed_chapters.forEach(f => {
+          failTbody.innerHTML += `
+            <tr style="border-bottom: 1px solid rgba(239, 68, 68, 0.15);">
+              <td style="padding: 0.4rem 0.65rem; font-weight: 600; color: #fca5a5;">${f.subject}</td>
+              <td style="padding: 0.4rem 0.65rem; color: white;">${f.chapter}</td>
+              <td style="padding: 0.4rem 0.65rem; color: #f87171;">${f.reason}</td>
+            </tr>
+          `;
+        });
+      } else {
+        failBox.style.display = 'none';
+      }
+    }
+
+    async function loadNeetprepFilesHistory() {
+      try {
+        const resp = await fetch('/api/neetprep/files');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const listEl = document.getElementById('np-history-list');
+        if (!data.zips || data.zips.length === 0) {
+          listEl.innerHTML = '<span style="font-size: 0.82rem; color: var(--text-muted);">No previous extractions found.</span>';
+          return;
+        }
+        listEl.innerHTML = '';
+        data.zips.forEach(z => {
+          listEl.innerHTML += `
+            <div class="download-card">
+              <div>
+                <div style="font-weight: 600; color: white; font-size: 0.9rem;">${z.filename}</div>
+                <div style="font-size: 0.76rem; color: var(--text-muted);">${z.size_mb} MB • Ready for download</div>
+              </div>
+              <a href="/api/neetprep/download?file=${encodeURIComponent(z.filename)}" class="btn btn-primary" style="padding: 0.45rem 0.85rem; font-size: 0.82rem; text-decoration: none;">
+                ⬇️ Download ZIP
+              </a>
+            </div>
+          `;
+        });
+      } catch (e) {
+        console.error('Error loading NEETprep history', e);
+      }
+    }
+
   </script>
 </body>
 </html>

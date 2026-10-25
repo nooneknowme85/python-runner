@@ -33,6 +33,7 @@ import quizard_extractor as QUIZARD
 import ray_book_extractor as RBE
 import allen_cropper_job as ACJ
 import studyaura_extractor as STUDYAURA
+import neetprep_extractor as NEETPREP
 import uuid
 
 HERE = Path(__file__).parent
@@ -55,6 +56,9 @@ ALLEN_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 STUDYAURA_OUTPUT_DIR = WORK_DIR / "studyaura_outputs"
 STUDYAURA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+NEETPREP_OUTPUT_DIR = WORK_DIR / "neetprep_outputs"
+NEETPREP_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 # Quizard extraction state
 active_quizard_job: Optional[QUIZARD.QuizardJob] = None
 quizard_lock = threading.Lock()
@@ -70,6 +74,10 @@ allen_lock = threading.Lock()
 # StudyAura extraction state
 active_studyaura_job: Optional[STUDYAURA.StudyAuraJob] = None
 studyaura_lock = threading.Lock()
+
+# NEETprep extraction state
+active_neetprep_job: Optional[NEETPREP.NeetprepJob] = None
+neetprep_lock = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -116,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500, f"Error reading file: {e}")
 
     def do_GET(self):
-        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job
+        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job, active_neetprep_job
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -370,11 +378,56 @@ class Handler(BaseHTTPRequestHandler):
                 })
             self.send_json({"zips": sorted(zips, key=lambda x: x["modified"], reverse=True)})
 
+        # -------------------------------------------------------------
+        # NEETprep Extractor APIs
+        # -------------------------------------------------------------
+        elif path == "/api/neetprep/status":
+            with neetprep_lock:
+                if not active_neetprep_job:
+                    self.send_json({"state": "idle", "message": "No NEETprep job running", "logs": []})
+                    return
+                qs = parse_qs(parsed.query)
+                since_idx = int(qs.get("since", ["0"])[0])
+                summary_data = active_neetprep_job.summary.to_dict() if active_neetprep_job.summary else None
+                res = {
+                    "id": active_neetprep_job.id,
+                    "state": active_neetprep_job.state,
+                    "message": active_neetprep_job.message,
+                    "done": active_neetprep_job.done,
+                    "total": active_neetprep_job.total,
+                    "active_subject": active_neetprep_job.active_subject,
+                    "active_chapter": active_neetprep_job.active_chapter,
+                    "logs": active_neetprep_job.logs[since_idx:],
+                    "log_total": len(active_neetprep_job.logs),
+                    "has_zip": bool(active_neetprep_job.output_zip_path and active_neetprep_job.output_zip_path.is_file()),
+                    "summary": summary_data
+                }
+                self.send_json(res)
+
+        elif path == "/api/neetprep/download":
+            with neetprep_lock:
+                if not active_neetprep_job or not active_neetprep_job.output_zip_path or not active_neetprep_job.output_zip_path.is_file():
+                    self.send_error(404, "No extracted NEETprep ZIP archive available.")
+                    return
+                zip_path = active_neetprep_job.output_zip_path
+            self.serve_file(zip_path, "application/zip", download_name=zip_path.name)
+
+        elif path == "/api/neetprep/files":
+            zips = []
+            for z in NEETPREP_OUTPUT_DIR.glob("*.zip"):
+                zips.append({
+                    "filename": z.name,
+                    "size_bytes": z.stat().st_size,
+                    "size_mb": round(z.stat().st_size / (1024 * 1024), 2),
+                    "modified": z.stat().st_mtime
+                })
+            self.send_json({"zips": sorted(zips, key=lambda x: x["modified"], reverse=True)})
+
         else:
             self.send_error(404, "Not Found")
 
     def do_POST(self):
-        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job
+        global active_quizard_job, active_ray_book_job, active_allen_job, active_studyaura_job, active_neetprep_job
         parsed = urlparse(self.path)
         path = parsed.path
         length = int(self.headers.get("Content-Length", 0))
@@ -683,6 +736,53 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"error": str(e)}, code=500)
 
+        # -------------------------------------------------------------
+        # NEETprep Extractor POST Endpoints
+        # -------------------------------------------------------------
+        elif path == "/api/neetprep/start":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+
+            with neetprep_lock:
+                if active_neetprep_job and active_neetprep_job.state == "running":
+                    self.send_json({"error": "A NEETprep extraction is already in progress."}, code=409)
+                    return
+
+                job_id = str(uuid.uuid4())[:8]
+                prefix = payload.get("prefix", "jee mains [2014-2026] neetprep")
+                subjects = payload.get("subjects", ["All"])
+                chapters = payload.get("chapters", [])
+
+                active_neetprep_job = NEETPREP.NeetprepJob(
+                    job_id=job_id,
+                    output_dir=NEETPREP_OUTPUT_DIR,
+                    prefix=prefix,
+                    target_subjects=subjects,
+                    target_chapters=chapters
+                )
+                active_neetprep_job.start()
+
+            self.send_json({"ok": True, "job_id": job_id, "state": "running"})
+
+        elif path == "/api/neetprep/stop":
+            with neetprep_lock:
+                if active_neetprep_job and active_neetprep_job.state == "running":
+                    active_neetprep_job.cancel()
+                    self.send_json({"success": True, "message": "Cancellation signal sent to NEETprep Extractor"})
+                else:
+                    self.send_json({"success": False, "message": "No active NEETprep job running"})
+
+        elif path == "/api/neetprep/open-folder":
+            try:
+                folder = str(NEETPREP_OUTPUT_DIR.resolve())
+                if os.name == 'nt':
+                    os.startfile(folder)
+                self.send_json({"success": True, "path": folder})
+            except Exception as e:
+                self.send_json({"error": str(e)}, code=500)
+
         else:
             self.send_error(404, "Not Found")
 
@@ -696,6 +796,7 @@ def run(port: int = 8080):
     print(f"👉 Ray Book outputs:     {RAY_BOOK_OUTPUT_DIR.resolve()}")
     print(f"👉 Allen Cropper outputs: {ALLEN_OUTPUTS_DIR.resolve()}")
     print(f"👉 StudyAura outputs:    {STUDYAURA_OUTPUT_DIR.resolve()}")
+    print(f"👉 NEETprep outputs:     {NEETPREP_OUTPUT_DIR.resolve()}")
     print(f"=======================================================\n")
     try:
         server.serve_forever()
