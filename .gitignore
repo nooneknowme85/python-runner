@@ -17,3 +17,7 @@ workspace/
 **/VideoDecodeStats/
 **/AutofillAiModelCache/
 **/blob_storage/
+
+# NEETprep downloads & cache
+NEETPrep_Downloads/
+neetprep_cache.json

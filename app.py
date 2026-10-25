@@ -751,7 +751,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 job_id = str(uuid.uuid4())[:8]
-                prefix = payload.get("prefix", "jee mains [2014-2026] neetprep")
+                prefix = payload.get("prefix", "jee mains mcq [2014-2026] neetprep")
                 subjects = payload.get("subjects", ["All"])
                 chapters = payload.get("chapters", [])
 

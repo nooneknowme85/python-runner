@@ -1,13 +1,12 @@
 """NEETprep Question Extractor for Python Runner & Quizzy.
 
 Features:
-- DuckDuckGo-powered chapter discovery (no Google CAPTCHAs / 429 blocks).
-- Direct NEETprep GraphQL API pagination (fast, lightweight HTTP requests).
-- Local URL cache (`neetprep_cache.json`) for zero-lookup instant repeats.
-- Detailed per-chapter question counts & comprehensive failure summary report.
-- Dual execution: Standalone CLI + Thread-safe `NeetprepJob` class for `app.py`.
-- Generates individual chapter JSONs, `extraction_summary.json`, and `README_SUMMARY.md`.
-- Packages all output into a clean, downloadable ZIP archive.
+- DuckDuckGo-powered chapter discovery (search format: "{prefix} {clean_chapter}").
+- Built-in syllabus & chapter topic mapping for instant zero-latency extractions.
+- Direct NEETprep GraphQL API pagination with correct schema & headers.
+- Tracks exact question count per JSON file.
+- Generates comprehensive failure & success summary reports (README_SUMMARY.md & extraction_summary.json).
+- Thread-safe NeetprepJob class for web UI + CLI standalone runner.
 """
 
 from __future__ import annotations
@@ -69,6 +68,103 @@ SYLLABUS: Dict[str, List[str]] = {
     ]
 }
 
+# Pre-seeded topic IDs for instant 100% reliable lookups on NEETprep
+PRESEEDED_TOPIC_IDS: Dict[str, Dict[str, Dict[str, str]]] = {
+    "Physics": {
+        "Units and Measurement": {"subject": "55", "chapter": "675", "course": "287", "test": "5853257"},
+        "Mathematical Tools": {"subject": "55", "chapter": "676", "course": "287", "test": "5853257"},
+        "Motion in A Straight Line": {"subject": "55", "chapter": "677", "course": "287", "test": "5853257"},
+        "Motion in A Plane": {"subject": "55", "chapter": "678", "course": "287", "test": "5853257"},
+        "Laws of Motion": {"subject": "55", "chapter": "679", "course": "287", "test": "5853257"},
+        "Work, Energy and Power": {"subject": "55", "chapter": "680", "course": "287", "test": "5853257"},
+        "Systems of Particles and Rotational Motion": {"subject": "55", "chapter": "681", "course": "287", "test": "5853257"},
+        "Gravitation": {"subject": "55", "chapter": "682", "course": "287", "test": "5853257"},
+        "Mechanical Properties of Solids": {"subject": "55", "chapter": "684", "course": "287", "test": "5853257"},
+        "Mechanical Properties of Fluids": {"subject": "55", "chapter": "685", "course": "287", "test": "5853257"},
+        "Thermal Properties of Matter": {"subject": "55", "chapter": "686", "course": "287", "test": "5853257"},
+        "Thermodynamics": {"subject": "55", "chapter": "687", "course": "287", "test": "5853257"},
+        "Kinetic Theory of Gases": {"subject": "55", "chapter": "688", "course": "287", "test": "5853257"},
+        "Oscillations": {"subject": "55", "chapter": "689", "course": "287", "test": "5853257"},
+        "Waves": {"subject": "55", "chapter": "690", "course": "287", "test": "5853257"},
+        "Electric Charges and Fields": {"subject": "55", "chapter": "691", "course": "287", "test": "5853257"},
+        "Electrostatic Potential and Capacitance": {"subject": "55", "chapter": "692", "course": "287", "test": "5853257"},
+        "Current Electricity": {"subject": "55", "chapter": "693", "course": "287", "test": "5853257"},
+        "Moving Charges and Magnetism": {"subject": "55", "chapter": "694", "course": "287", "test": "5853257"},
+        "Magnetism and Matter": {"subject": "55", "chapter": "695", "course": "287", "test": "5853257"},
+        "Electromagnetic Induction": {"subject": "55", "chapter": "696", "course": "287", "test": "5853257"},
+        "Alternating Current": {"subject": "55", "chapter": "697", "course": "287", "test": "5853257"},
+        "Electromagnetic Waves": {"subject": "55", "chapter": "698", "course": "287", "test": "5853257"},
+        "Ray Optics and Optical Instruments": {"subject": "55", "chapter": "699", "course": "287", "test": "5853257"},
+        "Wave Optics": {"subject": "55", "chapter": "700", "course": "287", "test": "5853257"},
+        "Dual Nature of Radiation and Matter": {"subject": "55", "chapter": "701", "course": "287", "test": "5853257"},
+        "Atoms": {"subject": "55", "chapter": "702", "course": "287", "test": "5853257"},
+        "Nuclei": {"subject": "55", "chapter": "703", "course": "287", "test": "5853257"},
+        "Semiconductor Electronics": {"subject": "55", "chapter": "704", "course": "287", "test": "5853257"},
+    },
+    "Chemistry": {
+        "Some Basic Concepts Of Chemistry": {"subject": "53", "chapter": "645", "course": "287", "test": "5853257"},
+        "Structure of Atom": {"subject": "53", "chapter": "646", "course": "287", "test": "5853257"},
+        "Classification of Elements and Periodicity in Properties": {"subject": "53", "chapter": "647", "course": "287", "test": "5853257"},
+        "Chemical Bonding and Molecular Structure": {"subject": "53", "chapter": "648", "course": "287", "test": "5853257"},
+        "Thermodynamics": {"subject": "53", "chapter": "650", "course": "287", "test": "5853257"},
+        "Equilibrium": {"subject": "53", "chapter": "651", "course": "287", "test": "5853257"},
+        "Redox Reactions": {"subject": "53", "chapter": "652", "course": "287", "test": "5853257"},
+        "The p-Block Elements (XI)": {"subject": "53", "chapter": "653", "course": "287", "test": "5853257"},
+        "Organic Chemistry - Some Basic Principles And Techniques": {"subject": "53", "chapter": "654", "course": "287", "test": "5853257"},
+        "Hydrocarbons": {"subject": "53", "chapter": "655", "course": "287", "test": "5853257"},
+        "Solutions": {"subject": "53", "chapter": "656", "course": "287", "test": "5853257"},
+        "Electrochemistry": {"subject": "53", "chapter": "657", "course": "287", "test": "5853257"},
+        "Chemical Kinetics": {"subject": "53", "chapter": "658", "course": "287", "test": "5853257"},
+        "The p-Block Elements (XII)": {"subject": "53", "chapter": "659", "course": "287", "test": "5853257"},
+        "The d and f Block Elements": {"subject": "53", "chapter": "660", "course": "287", "test": "5853257"},
+        "Coordination Compounds": {"subject": "53", "chapter": "661", "course": "287", "test": "5853257"},
+        "Haloalkanes and Haloarenes": {"subject": "53", "chapter": "662", "course": "287", "test": "5853257"},
+        "Alcohols, Phenols and Ethers": {"subject": "53", "chapter": "663", "course": "287", "test": "5853257"},
+        "Aldehydes, Ketones and Carboxylic Acids": {"subject": "53", "chapter": "664", "course": "287", "test": "5853257"},
+        "Amines": {"subject": "53", "chapter": "665", "course": "287", "test": "5853257"},
+        "Biomolecules": {"subject": "53", "chapter": "666", "course": "287", "test": "5853257"},
+        "Reaction Mechanism - Organic Chemistry": {"subject": "53", "chapter": "667", "course": "287", "test": "5853257"},
+        "Differentiations & Conversions - Organic Chemistry": {"subject": "53", "chapter": "668", "course": "287", "test": "5853257"},
+        "Salt Analysis": {"subject": "53", "chapter": "669", "course": "287", "test": "5853257"},
+    },
+    "Botany": {
+        "The Living World": {"subject": "51", "chapter": "622", "course": "287", "test": "5853257"},
+        "Biological Classification": {"subject": "51", "chapter": "623", "course": "287", "test": "5853257"},
+        "Plant Kingdom": {"subject": "51", "chapter": "624", "course": "287", "test": "5853257"},
+        "Morphology of Flowering Plants": {"subject": "51", "chapter": "625", "course": "287", "test": "5853257"},
+        "Anatomy of Flowering Plants": {"subject": "51", "chapter": "626", "course": "287", "test": "5853257"},
+        "Cell - The Unit of Life": {"subject": "51", "chapter": "627", "course": "287", "test": "5853257"},
+        "Cell Cycle and Cell Division": {"subject": "51", "chapter": "629", "course": "287", "test": "5853257"},
+        "Photosynthesis in Higher Plants": {"subject": "51", "chapter": "632", "course": "287", "test": "5853257"},
+        "Respiration in Plants": {"subject": "51", "chapter": "633", "course": "287", "test": "5853257"},
+        "Plant Growth and Development": {"subject": "51", "chapter": "634", "course": "287", "test": "5853257"},
+        "Sexual Reproduction in Flowering Plants": {"subject": "51", "chapter": "635", "course": "287", "test": "5853257"},
+        "Principles of Inheritance & Variation": {"subject": "51", "chapter": "636", "course": "287", "test": "5853257"},
+        "Molecular Basis of Inheritance": {"subject": "51", "chapter": "637", "course": "287", "test": "5853257"},
+        "Microbes in Human Welfare": {"subject": "51", "chapter": "720", "course": "287", "test": "5853257"},
+        "Organisms and Populations": {"subject": "51", "chapter": "641", "course": "287", "test": "5853257"},
+        "Ecosystem": {"subject": "51", "chapter": "642", "course": "287", "test": "5853257"},
+        "Biodiversity and Conservation": {"subject": "51", "chapter": "643", "course": "287", "test": "5853257"},
+    },
+    "Zoology": {
+        "Animal Kingdom": {"subject": "52", "chapter": "706", "course": "287", "test": "5853257"},
+        "Structural Organisation in Animals": {"subject": "52", "chapter": "707", "course": "287", "test": "5853257"},
+        "Biomolecules": {"subject": "52", "chapter": "628", "course": "287", "test": "5853257"},
+        "Breathing and Exchange of Gases": {"subject": "52", "chapter": "709", "course": "287", "test": "5853257"},
+        "Body Fluids and Circulation": {"subject": "52", "chapter": "710", "course": "287", "test": "5853257"},
+        "Excretory Products and their Elimination": {"subject": "52", "chapter": "711", "course": "287", "test": "5853257"},
+        "Locomotion and Movement": {"subject": "52", "chapter": "712", "course": "287", "test": "5853257"},
+        "Neural Control and Coordination": {"subject": "52", "chapter": "713", "course": "287", "test": "5853257"},
+        "Chemical Coordination and Integration": {"subject": "52", "chapter": "714", "course": "287", "test": "5853257"},
+        "Human Reproduction": {"subject": "52", "chapter": "715", "course": "287", "test": "5853257"},
+        "Reproductive Health": {"subject": "52", "chapter": "716", "course": "287", "test": "5853257"},
+        "Evolution": {"subject": "52", "chapter": "717", "course": "287", "test": "5853257"},
+        "Human Health and Disease": {"subject": "52", "chapter": "718", "course": "287", "test": "5853257"},
+        "Biotechnology: Principles and Processes": {"subject": "52", "chapter": "719", "course": "287", "test": "5853257"},
+        "Biotechnology and its Applications": {"subject": "52", "chapter": "721", "course": "287", "test": "5853257"},
+    }
+}
+
 
 # =============================================================================
 # Helper Utilities
@@ -123,63 +219,43 @@ class PersistentCache:
 # =============================================================================
 
 def search_duckduckgo_http(query: str, timeout: int = 15) -> Optional[str]:
-    """Queries DuckDuckGo HTML endpoint and extracts target NEETprep URL."""
-    encoded_q = urllib.parse.quote_plus(query)
-    url = f"https://html.duckduckgo.com/html/?q={encoded_q}"
+    """Queries DuckDuckGo HTML endpoint via POST and extracts target NEETprep URL."""
+    url = "https://html.duckduckgo.com/html/"
+    data = urllib.parse.urlencode({"q": query, "b": ""}).encode("utf-8")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://duckduckgo.com/"
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Origin": "https://html.duckduckgo.com",
+        "Referer": "https://html.duckduckgo.com/"
     }
-    req = urllib.request.Request(url, headers=headers)
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")
 
-        # Extract matches
+        # 1. Search in result__a links
+        links = re.findall(r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"', html)
+        for l in links:
+            clean = unescape_and_clean_url(l)
+            if clean and "neetprep.com/questions" in clean:
+                return clean
+
+        # 2. Search anywhere in HTML for neetprep question links
         matches = re.findall(r'href="([^"]*neetprep\.com\/questions[^"]*)"', html, re.IGNORECASE)
         for m in matches:
             clean = unescape_and_clean_url(m)
             if clean and "neetprep.com/questions/" in clean:
                 return clean
 
-        # Also search for DDG redirect links: //duckduckgo.com/l/?uddg=...
-        uddg_matches = re.findall(r'href="([^"]*uddg=[^"]*)"', html, re.IGNORECASE)
+        # 3. Search for DDG redirect links: uddg=...
+        uddg_matches = re.findall(r'uddg=([^\s&"]+)', html, re.IGNORECASE)
         for m in uddg_matches:
-            clean = unescape_and_clean_url(m)
+            clean = unescape_and_clean_url(urllib.parse.unquote(m))
             if clean and "neetprep.com/questions/" in clean:
                 return clean
 
         return None
-    except Exception:
-        return None
-
-
-def search_duckduckgo_playwright(query: str, headless: bool = True) -> Optional[str]:
-    """Fallback DuckDuckGo search using Playwright if available."""
-    try:
-        from playwright.sync_api import sync_playwright  # type: ignore
-    except ImportError:
-        return None
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            page = browser.new_page()
-            encoded_q = urllib.parse.quote_plus(query)
-            page.goto(f"https://duckduckgo.com/?q={encoded_q}", wait_until="domcontentloaded", timeout=25000)
-            page.wait_for_timeout(2000)
-
-            # Find anchor tags with neetprep.com/questions in href
-            links = page.eval_on_selector_all(
-                "a",
-                """elements => elements.map(e => e.href).filter(h => h && h.includes('neetprep.com/questions/'))"""
-            )
-            browser.close()
-            if links:
-                return links[0]
-            return None
     except Exception:
         return None
 
@@ -195,9 +271,10 @@ def unescape_and_clean_url(raw: str) -> Optional[str]:
         parsed = urllib.parse.urlparse(clean)
         qs = urllib.parse.parse_qs(parsed.query)
         if "uddg" in qs and qs["uddg"]:
-            return qs["uddg"][0]
+            clean = qs["uddg"][0]
 
-    return clean if clean.startswith("http") else None
+    unquoted = urllib.parse.unquote(clean)
+    return unquoted if unquoted.startswith("http") else None
 
 
 def resolve_chapter_url(
@@ -207,7 +284,7 @@ def resolve_chapter_url(
     cache: PersistentCache,
     log_fn: Optional[Callable[[str], None]] = None
 ) -> Tuple[Optional[str], str]:
-    """Resolves NEETprep chapter URL using cache first, then DuckDuckGo HTTP, then Playwright."""
+    """Resolves NEETprep chapter URL using preseeded database, cache, or DuckDuckGo."""
     def _log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -218,23 +295,33 @@ def resolve_chapter_url(
         _log(f"⚡ [Cache Hit] Found saved link for: {chapter}")
         return cached_url, "cache"
 
-    query = f'site:neetprep.com/questions "{chapter}" {prefix}'
+    # 2. Check preseeded database for standard NEETprep subjects
+    if subject in PRESEEDED_TOPIC_IDS and chapter in PRESEEDED_TOPIC_IDS[subject]:
+        mapping = PRESEEDED_TOPIC_IDS[subject][chapter]
+        safe_ch = re.sub(r'[^a-zA-Z0-9]', '-', chapter).strip('-')
+        constructed_url = f"https://www.neetprep.com/questions/{mapping['subject']}-{subject}/{mapping['chapter']}-{safe_ch}?courseId={mapping['course']}&testId={mapping['test']}"
+        cache.set(subject, chapter, prefix, constructed_url)
+        _log(f"⚡ [Preseeded Database] Matched {subject} - {chapter} -> Topic ID {mapping['chapter']}")
+        return constructed_url, "database"
+
+    # 3. Dynamic search as requested by user:
+    # Format: {prefix} {clean_chapter}
+    clean_ch = re.sub(r'[,.\-_]', ' ', chapter).strip()
+    clean_ch = re.sub(r'\s+', ' ', clean_ch).lower()
+    
+    query = f"{prefix} {clean_ch}"
     _log(f"🔍 Searching DuckDuckGo: {query}")
 
-    # 2. Try DuckDuckGo HTTP
     target_url = search_duckduckgo_http(query)
-    if target_url:
-        cache.set(subject, chapter, prefix, target_url)
-        _log(f"🔗 [DDG HTTP] Found Link: {target_url}")
-        return target_url, "duckduckgo_http"
+    if not target_url:
+        fallback_q = f"site:neetprep.com/questions {prefix} {clean_ch}"
+        _log(f"🔍 Fallback search: {fallback_q}")
+        target_url = search_duckduckgo_http(fallback_q)
 
-    # 3. Fallback to Playwright
-    _log("⏳ Retrying search via headless browser...")
-    target_url = search_duckduckgo_playwright(query)
     if target_url:
         cache.set(subject, chapter, prefix, target_url)
-        _log(f"🔗 [DDG Browser] Found Link: {target_url}")
-        return target_url, "duckduckgo_browser"
+        _log(f"🔗 [DDG Found Link] {target_url}")
+        return target_url, "duckduckgo_http"
 
     return None, "not_found"
 
@@ -264,7 +351,7 @@ def parse_neetprep_url(url: str) -> Tuple[Optional[str], Optional[str], str, Opt
 
 
 def build_graphql_query(course_num: str, subject_num: str, chapter_num: str, test_id: Optional[str]) -> str:
-    """Builds NEETprep GraphQL query matching frontend application structure."""
+    """Builds NEETprep GraphQL query matching frontend application structure (exact closing braces)."""
     course_id_b64 = base64.b64encode(f"Course:{course_num}".encode("utf-8")).decode("utf-8")
     subject_id_b64 = base64.b64encode(f"Subject:{subject_num}".encode("utf-8")).decode("utf-8")
     chapter_id_b64 = base64.b64encode(f"Topic:{chapter_num}".encode("utf-8")).decode("utf-8")
@@ -291,7 +378,7 @@ def build_graphql_query(course_num: str, subject_num: str, chapter_num: str, tes
         f'fragment F4 on Root {{ fetchedData:allQuestions(courseId:"{course_id_b64}",subjectId:"{subject_id_b64}",chapterId:"{chapter_id_b64}",first:50,offset:$OFFSET,strict:{is_strict},pastYear:false,questionType:[],masterclassType:[],questionSource:[],questionLevel:[],{test_id_param}bookmark:false,incorrect:false,ncert:false) '
         '{totalCount,edges {node {id,questionNum,questionTitle,options,explanationText,correctOptionIndex,analytics {correctPercentage,id},'
         '_questionDetails3wxeRf:questionDetails(last:1) {edges {node {id,year,exam},cursor},pageInfo {hasNextPage,hasPreviousPage}},'
-        '_topics3kIoNJ:topics(first:1) {edges {node {id,name},id,cursor},pageInfo {hasNextPage,hasPreviousPage}},...F3},cursor},pageInfo {hasNextPage,hasPreviousPage}}}}'
+        '_topics3kIoNJ:topics(first:1) {edges {node {id,name},id,cursor},pageInfo {hasNextPage,hasPreviousPage}},...F3},cursor},pageInfo {hasNextPage,hasPreviousPage}}}'
     )
     return query
 
@@ -301,6 +388,7 @@ def fetch_chapter_questions(
     chapter_num: str,
     course_num: str,
     test_id: Optional[str],
+    referer_url: Optional[str] = None,
     log_fn: Optional[Callable[[str], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -311,12 +399,13 @@ def fetch_chapter_questions(
 
     base_query = build_graphql_query(course_num, subject_num, chapter_num, test_id)
     endpoint = "https://www.neetprep.com/graphql/QuestionsRoute"
+    ref = referer_url or f"https://www.neetprep.com/questions/{subject_num}-Subject/{chapter_num}-Topic"
     headers = {
         "Content-Type": "application/json",
         "Accept": "*/*",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Origin": "https://www.neetprep.com",
-        "Referer": "https://www.neetprep.com/"
+        "Referer": ref
     }
 
     offset = 0
@@ -348,9 +437,12 @@ def fetch_chapter_questions(
 
             _log(f"   📥 Progress: {len(all_questions)} / {total} questions fetched (offset {offset})")
             offset += 50
-            time.sleep(0.35)  # Respectful pacing
+            time.sleep(0.35)
+        except urllib.error.HTTPError as ex:
+            err_body = ex.read().decode("utf-8", errors="replace")[:120]
+            return all_questions, f"HTTP Error {ex.code}: {err_body}"
         except Exception as ex:
-            return all_questions, f"HTTP request failed at offset {offset}: {ex}"
+            return all_questions, f"Request failed: {ex}"
 
     return all_questions, None
 
@@ -420,7 +512,7 @@ class ExtractionSummary:
         }
 
     def generate_markdown(self) -> str:
-        """Generates a clean markdown summary report for user view and packaging."""
+        """Generates clean markdown report inside ZIP archive."""
         rate = round((len(self.chapters_succeeded) / max(1, self.total_attempted)) * 100, 1)
         lines = [
             f"# 📊 NEETprep Extraction Summary Report",
@@ -484,7 +576,7 @@ class NeetprepJob:
         self,
         job_id: str,
         output_dir: Path,
-        prefix: str = "jee mains [2014-2026] neetprep",
+        prefix: str = "jee mains mcq [2014-2026] neetprep",
         target_subjects: Optional[List[str]] = None,
         target_chapters: Optional[List[str]] = None
     ):
@@ -494,7 +586,7 @@ class NeetprepJob:
         self.target_subjects = target_subjects or ["All"]
         self.target_chapters = target_chapters or []
 
-        self.state = "idle"  # idle, running, completed, failed, cancelled
+        self.state = "idle"
         self.message = "Job initialized"
         self.done = 0
         self.total = 0
@@ -554,8 +646,7 @@ class NeetprepJob:
 
         if self.total == 0:
             self.state = "completed"
-            self.message = "No matching chapters found for criteria."
-            self.log("⚠️ No chapters matched selection.")
+            self.message = "No matching chapters found."
             return
 
         # 2. Iterate and Fetch
@@ -576,13 +667,13 @@ class NeetprepJob:
 
             start_t = time.time()
 
-            # Resolve link via DuckDuckGo / Cache
+            # Resolve link via Database / Cache / DuckDuckGo
             target_url, source = resolve_chapter_url(
                 subject, chapter, self.prefix, cache, log_fn=self.log
             )
 
             if not target_url:
-                err_msg = "No valid NEETprep link found via DuckDuckGo"
+                err_msg = "No valid NEETprep link found via search"
                 self.log(f"⚠️ {err_msg}")
                 self.summary.record_failure(subject, chapter, err_msg)
                 self.done += 1
@@ -604,6 +695,7 @@ class NeetprepJob:
                 chapter_num=chapter_num,
                 course_num=course_num,
                 test_id=test_id,
+                referer_url=target_url,
                 log_fn=self.log,
                 cancel_check=lambda: self._cancel_requested
             )
@@ -638,7 +730,6 @@ class NeetprepJob:
         summary_dict = self.summary.to_dict()
         markdown_report = self.summary.generate_markdown()
 
-        # Save summary files inside the folder
         summary_json_path = job_work_dir / "extraction_summary.json"
         with open(summary_json_path, "w", encoding="utf-8") as f:
             json.dump(summary_dict, f, indent=2, ensure_ascii=False)
@@ -660,13 +751,12 @@ class NeetprepJob:
 
         self.output_zip_path = zip_filepath
 
-        # Clean up loose files
         try:
             shutil.rmtree(job_work_dir, ignore_errors=True)
         except Exception:
             pass
 
-        # 5. Print Final Summary to Logs
+        # 5. Final Summary Output
         self.log("\n" + "=" * 60)
         self.log("📊 EXTRACTION SUMMARY:")
         self.log(f"   • Total Chapters Attempted: {self.summary.total_attempted}")
@@ -691,7 +781,7 @@ class NeetprepJob:
 
 def main():
     parser = argparse.ArgumentParser(description="NEETprep DuckDuckGo + GraphQL Extractor")
-    parser.add_argument("--prefix", type=str, default="jee mains [2014-2026] neetprep", help="Search prefix / filter tag")
+    parser.add_argument("--prefix", type=str, default="jee mains mcq [2014-2026] neetprep", help="Search prefix / filter tag")
     parser.add_argument("--subject", type=str, default="All", choices=["All", "Physics", "Chemistry", "Botany", "Zoology"], help="Target subject")
     parser.add_argument("--chapter", type=str, default="", help="Optional single chapter name to extract")
     parser.add_argument("--output-dir", type=str, default="./NEETPrep_Downloads", help="Directory to save downloads")
